@@ -347,6 +347,13 @@ class Engine:
                               (expression, job_id)).fetchall()
             observation_rows = db.execute('SELECT payload FROM observation_index WHERE observation_index MATCH ? AND job_id=? ORDER BY rank LIMIT 20',
                                           (expression, job_id)).fetchall()
+            prefix_fallback=False
+            if not rows and not observation_rows:
+                # Conservative lexical fallback, not semantic expansion or SQL interpolation.
+                expression=' AND '.join('"'+(t[:-1] if len(t)>5 and t.endswith('s') else t)+'"'+('*' if len(t)>=4 else '') for t in terms)
+                rows=db.execute('SELECT evidence_id FROM search_index WHERE search_index MATCH ? AND job_id=? ORDER BY rank LIMIT 20',(expression,job_id)).fetchall()
+                observation_rows=db.execute('SELECT payload FROM observation_index WHERE observation_index MATCH ? AND job_id=? ORDER BY rank LIMIT 20',(expression,job_id)).fetchall()
+                prefix_fallback=True
         matches = {row[0]: [] for row in rows}
         for row in observation_rows:
             observation = json.loads(row[0])
@@ -355,6 +362,7 @@ class Engine:
         hits = []
         for eid, observations in list(matches.items())[:20]:
             span = self.read(job_id, eid)
+            span['search_match']='prefix-fallback' if prefix_fallback else 'exact-terms'
             if observations:
                 span['matched_observations'] = observations
             hits.append(span)

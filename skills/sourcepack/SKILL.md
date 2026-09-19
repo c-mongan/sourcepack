@@ -20,7 +20,7 @@ Use the stated question directly. A bare source means explain its main ideas, pr
 
 Video uses pinned Summarize timed extraction, English captions, yt-dlp and ffmpeg. Raw captions and extractor output remain separate from derived reading sections. Web evidence is saved extractor JSON, not original HTML. Local text works without optional tools.
 
-PDF/DOCX/PPTX/XLSX use the optional `documents-basic` interpreter. MarkItDown output has derived section, sheet or verified slide locators; do not invent PDF page citations. For layout-sensitive PDFs, `--document-profile documents-layout` requires a configured Docling runtime and existing verified models. That route is experimental; OCR is disabled. A scanned PDF may need the host's existing visual tool. Report this gap rather than treating empty text as a summary.
+PDF/DOCX/PPTX/XLSX use the optional `documents-basic` interpreter. MarkItDown output has derived section, sheet or verified slide locators; do not invent PDF page citations. For layout-sensitive PDFs, `--document-profile documents-layout` requires a configured Docling runtime and existing verified models. That route is currently disabled until a versioned model set passes offline qualification; OCR is disabled. A scanned PDF may need the host's existing visual tool. Report this gap rather than treating empty text as a summary.
 
 ## Read and record useful findings
 

@@ -28,6 +28,7 @@ def stage_reusable(record,options_hash,root):
 
 def run_stage(run,manifest,name,options,action):
     stages=manifest.setdefault('stages',{});record=stages.setdefault(name,{'status':'pending','attempts':[]})
+    record.setdefault('attempts',[])
     key=digest(options)
     if stage_reusable(record,key,run):return [Path(run)/a['path'] for a in record['artifacts']]
     record.update(status='pending',options_hash=key,producer=options)

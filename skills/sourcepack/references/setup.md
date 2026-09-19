@@ -48,7 +48,7 @@ The [qualification dependency snapshot](runtime-locks/markitdown-macos-py312.txt
 
 ### Experimental layout adapter
 
-`--document-profile documents-layout` is a separate optional route. It requires a Docling interpreter and explicitly pre-provisioned artifacts, with `artifacts_path` and an `artifacts_manifest` list of relative `path`/`sha256` pairs in its config. Missing artifacts fail before the converter starts. Remote services/plugins are disabled and offline flags are set. OCR is currently disabled. This adapter has not passed live model-backed qualification; do not advertise it as supported OCR. No Docling install or model setup occurs automatically.
+`--document-profile documents-layout` is a separate optional route. It requires a Docling interpreter and explicitly pre-provisioned artifacts, with `artifacts_path` and an `artifacts_manifest` list of relative `path`/`sha256` pairs in its config. Missing artifacts fail before the converter starts. Remote services/plugins are disabled and offline flags are set. OCR is currently disabled. This adapter is disabled until a versioned required model set passes offline qualification. A user-supplied hash list alone does not prove model completeness. Do not advertise this route as working layout or OCR. No Docling install or model setup occurs automatically.
 
 ## Reading, recovery and portable exports
 

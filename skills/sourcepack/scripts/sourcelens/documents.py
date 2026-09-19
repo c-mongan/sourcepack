@@ -36,7 +36,8 @@ def layout_readiness(config):
         from .normalized import checked_path
         for entry in manifest:checked_path(Path(root),entry)
     except (ContractError,OSError):result['gaps'].append('Layout artifacts missing or changed');return result
-    result.update(ready=True,artifacts_present=True)
+    result.update(ready=False,artifacts_present=True,completeness_verified=False)
+    result['gaps'].append('Model completeness unverified: no model-backed layout profile has been qualified for this release')
     result['gaps'].append('OCR disabled until an explicit local backend is qualified')
     return result
 

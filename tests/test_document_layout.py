@@ -13,3 +13,10 @@ class LayoutTests(unittest.TestCase):
  def test_incomplete_manifest_is_not_ready(self):
   with tempfile.TemporaryDirectory() as td:
    self.assertFalse(layout_readiness({'artifacts_path':td,'artifacts_manifest':[{'path':'missing','sha256':'a'*64}]})['ready'])
+ def test_arbitrary_hash_manifest_does_not_prove_model_readiness(self):
+  import hashlib
+  with tempfile.TemporaryDirectory() as td:
+   p=Path(td)/'README';p.write_text('not models')
+   result=layout_readiness({'artifacts_path':td,'artifacts_manifest':[{'path':'README','sha256':hashlib.sha256(p.read_bytes()).hexdigest()}]})
+   self.assertFalse(result['ready'])
+   self.assertIn('completeness', ' '.join(result['gaps']).lower())

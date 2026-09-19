@@ -80,7 +80,7 @@ def extract(path, policy, max_frames=None, ffmpeg=None, ffprobe=None, start_ms=N
                                'image_bytes': data, 'locator': {'source_pts_ms': round(actual_time * 1000),
                                                                'width': width, 'height': height,
                                                                'timestamp_basis': 'decoded-source-pts', 'selection_reason':'requested-window' if start_ms is not None else reason,
-                                                               'requested_ms':targets[min(i,len(targets)-1)]}})
+                                                               'requested_window_ms':[start_ms,end_ms] if start_ms is not None else None}})
         return frames, [{'kind': 'visual_sampling', 'reason': f'{len(frames)} frames sampled about every {interval:.3f}s; brief events may be missed'}]
     except (OSError, subprocess.SubprocessError, ValueError, KeyError, StopIteration) as exc:
         if isinstance(exc, ContractError):

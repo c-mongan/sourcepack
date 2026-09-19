@@ -68,3 +68,11 @@ class StageTests(unittest.TestCase):
             with patch.object(w,'source_identity',return_value={'kind':'youtube','source':'url'}),patch.object(w,'extract_youtube',side_effect=acquire):
                 self.assertEqual(w.prepare('url',run)['status'],'ready_partial')
                 self.assertIn('ticket',w.next_ticket(run))
+    def test_skipped_stage_can_be_upgraded(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);m={'stages':{'video':{'status':'skipped','reason':'text-only'}}}
+            def action():
+                p=root/'video';p.write_text('video bytes');return [p]
+            run_stage(root,m,'video',{},action)
+            self.assertEqual(m['stages']['video']['status'],'ok')
+            self.assertEqual(m['stages']['video']['attempts'],[{'status':'ok'}])
