@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sourcepack-sourcelens"
+version = "0.2.0"
+description = "A source-inspection skill with traceable evidence and resumable local jobs"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = []
+
+[project.scripts]
+sourcepack = "sourcelens.workflow:main"
+sourcelens = "sourcelens.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["skills/sourcepack/scripts"]
+include = ["sourcelens*"]
