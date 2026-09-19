@@ -56,7 +56,7 @@ def export_pack(engine, job_id, destination):
             lines += ['## ' + span['id'], '', f'Source: {span["source_label"]} · Revision: `{span["revision_id"]}`', '',
                       'Locator: ' + json.dumps(span['locator']), '', f'[Original artifact]({span["artifact_path"]})', '']
             if span['kind'] == 'frame':
-                lines += [f'![Frame at {span["locator"]["source_pts_ms"]} ms]({span["artifact_path"]})', '']
+                lines += [f'![Frame at {span["locator"].get("source_pts_ms", "document page")} ms]({span["artifact_path"]})', '']
             else:
                 lines += ['> ' + line for line in span['text'].splitlines()] + ['']
         (staging / 'evidence.md').write_text('\n'.join(lines), encoding='utf-8')

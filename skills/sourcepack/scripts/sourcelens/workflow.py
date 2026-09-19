@@ -20,7 +20,7 @@ from .adapters import timestamp, URL
 from .contracts import ContractError
 from .engine import Engine
 
-VERSION = '0.2.0'
+VERSION = '0.3.0'
 TOOL_CONFIG = Path(__file__).resolve().parent.parent / 'tool-paths.json'
 MAX_DOWNLOAD = 256 * 1024 * 1024
 TEXT_SUFFIXES = {'.txt', '.md', '.html', '.htm', '.vtt', '.srt'}
@@ -104,6 +104,10 @@ def source_identity(source):
             raise ContractError('This URL type needs a separate document/media adapter; not supported by the web route')
         return {'kind': 'web', 'source': source}
     p = Path(source).expanduser().resolve(strict=True)
+    if p.suffix.lower() in {'.pdf','.docx','.pptx','.xlsx'}:
+        from .documents import document_preflight
+        document_preflight(p)
+        return {'kind':'document','source':str(p),'sha256':sha(p)}
     if not p.is_file() or p.suffix.lower() not in TEXT_SUFFIXES:
         raise ContractError('Supported local inputs: UTF-8 txt, md, html, vtt, srt')
     if p.stat().st_size > 64 * 1024 * 1024:
@@ -132,7 +136,7 @@ def load(run):
 def check_artifacts(run, m):
     for name, expected in m.get('artifacts', {}).items():
         p = run / name
-        if p.is_symlink() or not p.is_file() or sha(p) != expected:
+        if Path(name).is_absolute() or '..' in Path(name).parts or not p.resolve().is_relative_to(run.resolve()) or any(x.is_symlink() for x in [p,*p.parents] if x!=run and x.is_relative_to(run)) or not p.is_file() or sha(p) != expected:
             raise ContractError(f'Acquired artifact changed or missing: {name}; use a new run')
 
 
@@ -257,7 +261,7 @@ def extract_youtube(run, m):
     m['gaps'].append('Video-only rendition; audio not independently inspected. Bounded frame samples can miss brief events.')
 
 
-def prepare(source, destination, question=None, detail=None):
+def prepare(source, destination, question=None, detail=None, document_profile=None):
     identity = source_identity(source); run = Path(destination).absolute()
     if run.is_symlink(): raise ContractError('Run directory cannot be a symlink')
     if run.exists():
@@ -273,6 +277,10 @@ def prepare(source, destination, question=None, detail=None):
     run = run.resolve()
     with locked(run):
         _, m = load(run); check_artifacts(run, m)
+        if document_profile and document_profile!=m.get('document_profile','documents-basic'):
+            from .stages import invalidate
+            invalidate(m,'documents')
+        m['document_profile']=document_profile or m.get('document_profile','documents-basic')
         if question and not any(x['question']==question for x in m.setdefault('analysis_requests',[])):
             m['analysis_requests'].append({'question':question,'created_at':datetime.now(timezone.utc).isoformat()})
         if detail and detail != m.get('detail','auto'):
@@ -289,6 +297,18 @@ def prepare(source, destination, question=None, detail=None):
                     target=run/'acquired'/('source'+Path(identity['source']).suffix.lower())
                     shutil.copyfile(identity['source'],target)
                     m['imports']=[{'path':str(target.relative_to(run)),'format':None}]
+                elif identity['kind']=='document':
+                    from .documents import convert_document
+                    config=json.loads(TOOL_CONFIG.read_text()) if TOOL_CONFIG.exists() else {}
+                    profile=m.get('document_profile','documents-basic')
+                    options=config.get(profile,{})
+                    from .stages import run_stage
+                    def convert():
+                        converted=convert_document(Path(identity['source']),run/'acquired/document',profile,options)
+                        m['gaps'].extend(converted.get('gaps',[]))
+                        return [p for p in (run/'acquired/document').rglob('*') if p.is_file()]
+                    run_stage(run,m,'documents',{'profile':profile,'config':options},convert)
+                    m['imports']=[{'path':'acquired/document/normalized.json','format':'normalized'}]
                 elif identity['kind']=='web': extract_web(run,m)
                 else: extract_youtube(run,m)
                 m['artifacts']={str(p.relative_to(run)):sha(p) for p in sorted((run/'acquired').rglob('*')) if p.is_file()}
@@ -296,10 +316,15 @@ def prepare(source, destination, question=None, detail=None):
             video_count=sum(Path(x['path']).suffix in ('.mp4','.mov','.webm','.mkv') for x in m['imports'])
             media_options={'max_frames':min(12,max(1,96//max(1,video_count))),'ffmpeg':command('ffmpeg'),'ffprobe':command('ffprobe')}
             engine=Engine(run/'state',run/'acquired',media_options=media_options)
-            m['jobs']=[]
+            m.setdefault('jobs',[])
             for item in m['imports']:
-                result=engine.ingest(run/item['path'],input_format=item['format'])
-                m['jobs'].append({'job_id':result['job_id'],'source':item['path']})
+                try:result=engine.ingest(run/item['path'],input_format=item['format'])
+                except ContractError as exc:
+                    if Path(item['path']).suffix not in ('.mp4','.mov','.webm','.mkv'):raise
+                    m.setdefault('stages',{}).setdefault('visual-index',{}).update(status='failed',error=str(exc))
+                    m['gaps'].append('Video import failed: '+str(exc));continue
+                if result['job_id'] not in {j['job_id'] for j in m['jobs']}:
+                    m['jobs'].append({'job_id':result['job_id'],'source':item['path']})
                 write_json(run/'run.json',m)
             if not m['jobs']:raise ContractError('No usable evidence acquired; inspect stage gaps')
             m['status']='ready_partial' if any(x.get('status')=='failed' for x in m.get('stages',{}).values()) else 'ready';m.pop('error',None);write_json(run/'run.json',m)
@@ -379,33 +404,44 @@ def focus(run,start,end):
         return result
 
 
-def export_run(run,destination):
-    run,m=load(run);check_artifacts(run,m);dest=Path(destination).absolute()
-    if dest.exists():raise ContractError('Export destination must not exist')
-    engine=Engine(run/'state',run/'acquired')
-    with tempfile.TemporaryDirectory(dir=dest.parent,prefix='.sourcepack-export-') as temp:
-        staging=Path(temp)/'pack';staging.mkdir(mode=0o700)
-        links=[]
-        for i,job in enumerate(m['jobs']):
-            name=f'source-{i+1:03d}';engine.export(job['job_id'],staging/name)
-            links.append(f'- [{job["source"]}]({name}/index.md)')
-        write_json(staging/'run.json',m)
-        (staging/'index.md').write_text('# SourcePack evidence\n\nPrivate evidence; not a certification of semantic accuracy.\n\n'+'\n'.join(links)+'\n\n## Acquisition gaps\n\n'+'\n'.join('- '+g for g in m['gaps'])+'\n')
-        write_json(staging/'manifest.json',{'schema':'sourcepack.collection.v1','files':{str(p.relative_to(staging)):sha(p) for p in staging.rglob('*') if p.is_file()},'note':'Source exports include imported bytes. Additional acquisition originals and logs remain in the run directory; keep it.'})
-        os.rename(staging,dest)
-    return {'status':'exported','path':str(dest),'retain_run_for_acquisition_originals':True}
+def export_run(run,destination,include_originals=True):
+    from .pack import build_pack
+    return build_pack(run,destination,include_originals)
 
 
 def doctor():
-    return {'version':VERSION,'python':sys.version.split()[0], 'platform':sys.platform,
-            'tools':{t: {'argv':command(t),'found':bool(shutil.which(command(t)[0]))} for t in ('summarize','yt-dlp','ffmpeg','ffprobe')},
-            'note':'Availability is not successful extraction. No installs, model calls or account changes performed.'}
+    tools={}
+    for name in ('summarize','yt-dlp','ffmpeg','ffprobe'):
+        argv=command(name);found=bool(shutil.which(argv[0]));version=None;error=None
+        if found:
+            try:
+                p=subprocess.run(argv+(['-version'] if name in ('ffmpeg','ffprobe') else ['--version']),capture_output=True,timeout=8,env=extraction_env())
+                version=(p.stdout or p.stderr).decode(errors='replace').splitlines()[0][:200]
+                if p.returncode:error='Version probe failed'
+            except (OSError,subprocess.SubprocessError,IndexError):error='Version probe unavailable'
+        tools[name]={'argv':argv,'found':found,'version':version,'error':error}
+    config=json.loads(TOOL_CONFIG.read_text()) if TOOL_CONFIG.exists() else {};profiles={}
+    for name,package in [('documents-basic','markitdown'),('documents-layout','docling-slim')]:
+        options=config.get(name,{});argv=options.get('argv') if isinstance(options,dict) else None
+        result={'ready':False,'version':None,'gap':'Optional interpreter not configured'}
+        if isinstance(argv,list) and argv:
+            try:
+                code='from importlib.metadata import version; print(version('+repr(package)+'))'
+                p=subprocess.run(argv+['-c',code],capture_output=True,timeout=10,env=extraction_env())
+                result={'ready':p.returncode==0,'version':p.stdout.decode().strip() or None,'gap':None if p.returncode==0 else 'Package unavailable in configured interpreter'}
+                if name=='documents-layout':
+                    from .documents import layout_readiness
+                    readiness=layout_readiness(options);result['ready']=result['ready'] and readiness['ready'];result['layout']=readiness
+            except (OSError,subprocess.SubprocessError):result['gap']='Interpreter unavailable'
+        profiles[name]=result
+    return {'version':VERSION,'python':sys.version.split()[0],'platform':sys.platform,'tools':tools,'profiles':profiles,
+            'note':'Version/readiness probes do not prove extraction. No installs, model downloads or account changes.'}
 
 
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__);sub=p.add_subparsers(dest='action',required=True)
     sub.add_parser('doctor')
-    a=sub.add_parser('prepare');a.add_argument('source');a.add_argument('--out',required=True);a.add_argument('--question');a.add_argument('--detail',choices=['auto','text','deep'])
+    a=sub.add_parser('prepare');a.add_argument('source');a.add_argument('--out',required=True);a.add_argument('--question');a.add_argument('--detail',choices=['auto','text','deep']);a.add_argument('--document-profile',choices=['documents-basic','documents-layout'])
     a=sub.add_parser('retry');a.add_argument('run');a.add_argument('--stage',required=True)
     a=sub.add_parser('upgrade-run');a.add_argument('run')
     a=sub.add_parser('next');a.add_argument('run')
@@ -414,11 +450,13 @@ def main(argv=None):
     a=sub.add_parser('submit');a.add_argument('run');a.add_argument('result')
     a=sub.add_parser('query');a.add_argument('run');a.add_argument('text')
     a=sub.add_parser('focus');a.add_argument('run');a.add_argument('start',type=float);a.add_argument('end',type=float)
-    a=sub.add_parser('export');a.add_argument('run');a.add_argument('destination')
+    a=sub.add_parser('export');a.add_argument('run');a.add_argument('destination');a.add_argument('--lightweight',action='store_true')
+    a=sub.add_parser('support');a.add_argument('run');a.add_argument('child_run');a.add_argument('--role',required=True)
+    a=sub.add_parser('answer');a.add_argument('run');a.add_argument('file')
     args=p.parse_args(argv)
     try:
         if args.action=='doctor':result=doctor()
-        elif args.action=='prepare':result=prepare(args.source,args.out,args.question,args.detail)
+        elif args.action=='prepare':result=prepare(args.source,args.out,args.question,args.detail,args.document_profile)
         elif args.action=='retry':result=retry(args.run,args.stage)
         elif args.action=='upgrade-run':result=upgrade_run(args.run)
         elif args.action=='next':result=next_ticket(args.run)
@@ -434,7 +472,13 @@ def main(argv=None):
         elif args.action=='submit':result=submit(args.run,args.result)
         elif args.action=='query':result=query(args.run,args.text)
         elif args.action=='focus':result=focus(args.run,args.start,args.end)
-        else:result=export_run(args.run,args.destination)
+        elif args.action=='support':
+            from .pack import register_supporting_source
+            result=register_supporting_source(args.run,args.child_run,args.role)
+        elif args.action=='answer':
+            from .pack import save_answer
+            result=save_answer(args.run,args.file)
+        else:result=export_run(args.run,args.destination,not args.lightweight)
         print(json.dumps({'status':'ok','data':result},ensure_ascii=False));return 0
     except (OSError,ValueError,KeyError,TypeError) as exc:
         print(json.dumps({'status':'error','error':str(exc)},ensure_ascii=False));return 2

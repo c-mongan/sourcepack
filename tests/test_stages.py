@@ -45,3 +45,26 @@ class StageTests(unittest.TestCase):
             old=p.read_bytes();w.upgrade_run(run)
             self.assertEqual((run/'run.v1.json').read_bytes(),old)
             self.assertEqual(w.load(run)[1]['schema'],'sourcepack.run.v2')
+    def test_real_stage_graph_media_failure_reuses_caption_acquisition(self):
+        calls=[]
+        def tool(run,label,argv,timeout=120):
+            calls.append(label)
+            if label=='metadata':return json.dumps({'duration':1800,'description':''}).encode()
+            if label=='summarize':return json.dumps({'llm':None,'extracted':{'content':'Limit seven','transcriptSegments':[{'startMs':1000,'endMs':2000,'text':'Limit seven'}]}}).encode()
+            raise ContractError(label+' 403')
+        with tempfile.TemporaryDirectory() as td,patch.object(w,'source_identity',return_value={'kind':'youtube','source':'https://youtube.com/watch?v=abcdefghijk'}),patch.object(w,'run_tool',side_effect=tool):
+            run=Path(td)/'run';w.prepare('url',run)
+            self.assertEqual(w.load(run)[1]['status'],'ready_partial')
+            before=list(calls);w.retry(run,'video')
+            self.assertEqual(calls[len(before):],['video'])
+            self.assertIn('ticket',w.next_ticket(run))
+    def test_video_import_failure_preserves_text_readiness(self):
+        with tempfile.TemporaryDirectory() as td:
+            run=Path(td)/'run'
+            def acquire(run,m):
+                (run/'acquired/a.md').write_text('Useful text')
+                (run/'acquired/b.mp4').write_bytes(b'invalid media')
+                m['imports']=[{'path':'acquired/a.md','format':None},{'path':'acquired/b.mp4','format':None}]
+            with patch.object(w,'source_identity',return_value={'kind':'youtube','source':'url'}),patch.object(w,'extract_youtube',side_effect=acquire):
+                self.assertEqual(w.prepare('url',run)['status'],'ready_partial')
+                self.assertIn('ticket',w.next_ticket(run))

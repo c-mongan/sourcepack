@@ -1,0 +1,102 @@
+[
+  {
+    "query": "Explain this YouTube tutorial and check the settings on screen.",
+    "should_trigger": true,
+    "split": "train"
+  },
+  {
+    "query": "What does this PDF actually support? Keep citations.",
+    "should_trigger": true,
+    "split": "train"
+  },
+  {
+    "query": "Read this slide deck and show where the handoff is described.",
+    "should_trigger": true,
+    "split": "train"
+  },
+  {
+    "query": "Use these notes to explain the workflow and save evidence.",
+    "should_trigger": true,
+    "split": "validation"
+  },
+  {
+    "query": "What did the tutorial show for review mode? Reopen the source.",
+    "should_trigger": true,
+    "split": "validation"
+  },
+  {
+    "query": "Compare this webpage with its companion notes.",
+    "should_trigger": true,
+    "split": "train"
+  },
+  {
+    "query": "Can you inspect this Word policy and keep source locations?",
+    "should_trigger": true,
+    "split": "train"
+  },
+  {
+    "query": "Which tool does this spreadsheet say is required? Cite the sheet.",
+    "should_trigger": true,
+    "split": "train"
+  },
+  {
+    "query": "Summarize this video but flag unsupported claims.",
+    "should_trigger": true,
+    "split": "validation"
+  },
+  {
+    "query": "Resume the source pack I was reading yesterday.",
+    "should_trigger": true,
+    "split": "validation"
+  },
+  {
+    "query": "Edit this Word document and fix its formatting.",
+    "should_trigger": false,
+    "split": "train"
+  },
+  {
+    "query": "Make a YouTube video introducing my business.",
+    "should_trigger": false,
+    "split": "train"
+  },
+  {
+    "query": "Change the formulas in my budget spreadsheet.",
+    "should_trigger": false,
+    "split": "train"
+  },
+  {
+    "query": "Build a PDF invoice template.",
+    "should_trigger": false,
+    "split": "validation"
+  },
+  {
+    "query": "Upload this video to my channel.",
+    "should_trigger": false,
+    "split": "validation"
+  },
+  {
+    "query": "Install the app shown in this tutorial.",
+    "should_trigger": false,
+    "split": "train"
+  },
+  {
+    "query": "Crop this screenshot.",
+    "should_trigger": false,
+    "split": "train"
+  },
+  {
+    "query": "Translate this sentence into French.",
+    "should_trigger": false,
+    "split": "train"
+  },
+  {
+    "query": "Create a slide deck about our team.",
+    "should_trigger": false,
+    "split": "validation"
+  },
+  {
+    "query": "Write unit tests for my video player.",
+    "should_trigger": false,
+    "split": "validation"
+  }
+]
