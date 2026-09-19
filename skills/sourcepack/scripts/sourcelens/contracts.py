@@ -59,14 +59,19 @@ class HostResult:
     inspection_records: list[dict]
     observations: list[dict]
     gaps: list[dict]
+    no_findings_reason: str | None = None
 
     @classmethod
     def parse(cls, value: dict, policy: Policy) -> 'HostResult':
-        object_fields(value, set(cls.__dataclass_fields__))
+        required = set(cls.__dataclass_fields__) - {'no_findings_reason'}
+        version = value.get('schema_version') if isinstance(value, dict) else None
+        object_fields(value, required | ({'no_findings_reason'} if version == 'sourcelens.host-result.v2' else set()))
         if len(canonical(value).encode()) > policy.max_result_bytes:
             raise ContractError('Result exceeds byte budget')
-        if value['schema_version'] != 'sourcelens.host-result.v1':
+        if version not in ('sourcelens.host-result.v1', 'sourcelens.host-result.v2'):
             raise ContractError('Unsupported result schema')
+        if value.get('no_findings_reason') is not None:
+            text_value(value['no_findings_reason'], 1000)
         for key in ('job_id', 'task_id', 'attempt_id', 'lease_id', 'policy_id'):
             text_value(value[key], 128)
         for key in ('source_revision_ids', 'inspection_records', 'observations', 'gaps'):

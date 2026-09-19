@@ -20,7 +20,7 @@ from .adapters import timestamp, URL
 from .contracts import ContractError
 from .engine import Engine
 
-VERSION = '0.3.0'
+VERSION = '0.4.0'
 TOOL_CONFIG = Path(__file__).resolve().parent.parent / 'tool-paths.json'
 MAX_DOWNLOAD = 256 * 1024 * 1024
 TEXT_SUFFIXES = {'.txt', '.md', '.html', '.htm', '.vtt', '.srt'}
@@ -446,9 +446,11 @@ def main(argv=None):
     a=sub.add_parser('upgrade-run');a.add_argument('run')
     a=sub.add_parser('next');a.add_argument('run')
     a=sub.add_parser('read');a.add_argument('run')
+    a=sub.add_parser('inspect');a.add_argument('run')
+    a=sub.add_parser('finish');a.add_argument('run');a.add_argument('findings')
     a=sub.add_parser('record');a.add_argument('run');a.add_argument('annotations')
     a=sub.add_parser('submit');a.add_argument('run');a.add_argument('result')
-    a=sub.add_parser('query');a.add_argument('run');a.add_argument('text')
+    a=sub.add_parser('query');a.add_argument('run');a.add_argument('text');a.add_argument('--compact',action='store_true')
     a=sub.add_parser('focus');a.add_argument('run');a.add_argument('start',type=float);a.add_argument('end',type=float)
     a=sub.add_parser('export');a.add_argument('run');a.add_argument('destination');a.add_argument('--lightweight',action='store_true')
     a=sub.add_parser('support');a.add_argument('run');a.add_argument('child_run');a.add_argument('--role',required=True)
@@ -460,6 +462,14 @@ def main(argv=None):
         elif args.action=='retry':result=retry(args.run,args.stage)
         elif args.action=='upgrade-run':result=upgrade_run(args.run)
         elif args.action=='next':result=next_ticket(args.run)
+        elif args.action=='inspect':
+            from .quick import inspect_run
+            result=inspect_run(args.run)
+        elif args.action=='finish':
+            from .quick import finish_run
+            path=Path(args.findings)
+            if path.stat().st_size>128000:raise ContractError('Findings byte budget exceeded')
+            result=finish_run(args.run,json.loads(path.read_text()))
         elif args.action=='read':
             from .packets import present_packet
             result=present_packet(args.run)
@@ -470,7 +480,11 @@ def main(argv=None):
             annotations=json.loads(p.read_text());packet_id=annotations.pop('packet_id')
             result=record_packet(args.run,packet_id,annotations)
         elif args.action=='submit':result=submit(args.run,args.result)
-        elif args.action=='query':result=query(args.run,args.text)
+        elif args.action=='query':
+            result=query(args.run,args.text)
+            if args.compact:
+                from .quick import compact_span
+                result=[compact_span(s) for s in result]
         elif args.action=='focus':result=focus(args.run,args.start,args.end)
         elif args.action=='support':
             from .pack import register_supporting_source
