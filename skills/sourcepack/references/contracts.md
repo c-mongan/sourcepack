@@ -26,7 +26,7 @@ Normalized source records use `source: {path, sha256, origin}`, `producer`, `blo
 
 ## Compact review and selective findings
 
-`inspect` emits `sourcepack.review.v1`: an opaque review ID and two generated reading/index files. The ID binds source identity, original spans/artifact hashes and the rendered reading content. It grants no inspection credit. The derived view collapses overlapping or rapid adjacent rolling caption updates; originals, span IDs and child cue maps are not edited. Cleaned text is not a verbatim quotation source.
+`inspect` emits `sourcepack.review.v1`: an opaque review ID and two generated reading/index files. The ID binds source identity, original spans/artifact hashes and the rendered reading content, including acquisition and job-labelled engine gaps. New gaps require a fresh inspect; finish receipts preserve these gaps. It grants no inspection credit. The derived view collapses overlapping or rapid adjacent rolling caption updates; originals, span IDs and child cue maps are not edited. Cleaned text is not a verbatim quotation source.
 
 `finish` accepts `sourcepack.findings.v1` with exactly `schema`, `review_id`, `inspected_ids`, `observations`, and `answer`. It validates every observation and cited ID before creating any new tasks. It rejects changed/tampered views, foreign IDs, unknown/uninspected citations, and invalid original-text quotes. Each observation stays within one job and at most eight spans; longer selections are split into bounded leases. Cross-job facts use separate observations and host synthesis. Existing `answer` can cite inspected supporting runs.
 

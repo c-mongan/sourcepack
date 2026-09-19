@@ -55,16 +55,21 @@ def _view(run, manifest):
     from . import workflow as w
     engine = w.Engine(run/'state', run/'acquired')
     spans = []
+    gaps = [{'source':'acquisition', 'reason':g} for g in manifest['gaps']]
     for job in manifest['jobs']:
         snapshot = engine.snapshot(job['job_id'])
         if snapshot['cancelled']:
             raise ContractError('Cannot inspect a cancelled job')
+        gaps.extend({'source':job['source'], 'job_id':job['job_id'], **gap}
+                    for gap in engine.report(snapshot)['gaps'])
         for span in snapshot['spans']:
             span['artifact_path'] = str(engine.store.path(job['job_id'], span))
             spans.append(span)
     sections = ['# Evidence reading view',
                 'Derived caption cleanup, not verbatim quotations. Originals and cue mappings remain unchanged. '
                 'Reading this index does not establish image inspection. Open native frames to verify visual claims.']
+    if gaps:
+        sections.append('## Known gaps\n\n' + '\n'.join(json.dumps(g, ensure_ascii=False) for g in gaps))
     for span in spans:
         item = compact_span(span)
         sections.append(f"## {item['id']}\n\n{json.dumps(item['locator'], ensure_ascii=False)}\n\n" +
@@ -72,7 +77,7 @@ def _view(run, manifest):
     markdown = '\n\n'.join(sections) + '\n'
     review_id = 'review-' + digest({'schema':'sourcepack.review.v1', 'identity':manifest['identity'],
                                     'spans':spans, 'markdown':markdown})[:32]
-    return engine, spans, markdown, review_id
+    return engine, spans, markdown, review_id, gaps
 
 
 def inspect_run(run):
@@ -80,7 +85,7 @@ def inspect_run(run):
     run, m = w.load(run)
     if m['status'] not in ('ready', 'ready_partial'):
         raise ContractError('Run is not ready')
-    engine, spans, markdown, review_id = _view(run, m)
+    engine, spans, markdown, review_id, gaps = _view(run, m)
     folder = run/'reviews'/review_id
     folder.mkdir(parents=True, exist_ok=True)
     (folder/'reading.md').write_text(markdown)
@@ -88,7 +93,7 @@ def inspect_run(run):
     return {'schema':'sourcepack.review.v1', 'review_id':review_id,
             'reading_file':str(folder/'reading.md'), 'evidence_file':str(folder/'evidence.json'),
             'text_evidence_ids':[s['id'] for s in spans if s['kind'] != 'frame'],
-            'frame_count':sum(s['kind'] == 'frame' for s in spans), 'gaps':m['gaps'],
+            'frame_count':sum(s['kind'] == 'frame' for s in spans), 'gaps':gaps,
             'inspection':'No inspection is recorded until finish explicitly reports inspected IDs.'}
 
 
@@ -101,7 +106,7 @@ def finish_run(run, notes):
         raise ContractError('Unsupported or oversized findings')
     with w.locked(run):
         _, m = w.load(run)
-        engine, spans, markdown, review_id = _view(run, m)
+        engine, spans, markdown, review_id, gaps = _view(run, m)
         if notes['review_id'] != review_id:
             raise ContractError('Evidence changed; inspect again before finishing')
         folder = run/'reviews'/review_id
@@ -160,6 +165,6 @@ def finish_run(run, notes):
                     'inspected_count':len(inspected),'observations':len(observations),
                     'uninspected_count':len(by_id.keys()-(prior|set(inspected))),
                     'coverage':'Selected evidence only; unrelated inspection tasks remain pending.',
-                    'semantic_support':'host self-report; not independently verified'}
+                    'semantic_support':'host self-report; not independently verified', 'gaps':gaps}
         w.write_json(folder/(request_id+'-receipt.json'),response)
         return response

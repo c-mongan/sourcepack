@@ -52,3 +52,7 @@ All analysis evidence, local machine paths and raw receipts remain outside the p
 ## 0.3 implementation and evaluation
 
 See [2026-09-19 qualification results](acceptance/2026-09-19-results.md) for the current regression, real document-conversion, paired answer and fresh-context retrieval evidence. The paired pilot found equal selected-answer quality and higher SourcePack elapsed time; no general accuracy or speed advantage is claimed. Docling remains disabled pending offline model qualification.
+
+## 0.4 simplification
+
+See [the repeated comparison and final verification](acceptance/2026-09-19-simplification-results.md). The final suite runs 98 tests (96 pass, two optional skips); paired video answers tie at 12/12, while SourcePack takes 49% longer. This qualifies a narrow experimental skill, not platform expansion.

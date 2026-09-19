@@ -72,7 +72,7 @@ Runs contain private evidence and possibly sensitive URLs/paths. Keep them outsi
 
 ## Why this exists
 
-A first 35-minute tutorial case found equal selected-answer scores with and without the evidence layer. It did show process-resume and frame-backed retrieval working. That supports a small reusable skill, not a claim of superior reasoning. The next test is whether the complete skill reduces repeated orchestration work. [Verification and limitations](docs/VERIFICATION.md).
+A first 35-minute tutorial case found equal selected-answer scores with and without the evidence layer. It did show process-resume and frame-backed retrieval working. That supports a small reusable skill, not a claim of superior reasoning. The simplified workflow tied direct tools on 12 repeated video answers but took 49% longer. Keep it for saved evidence and recovery, with no claim of better reasoning or speed. [Repeated comparison](docs/acceptance/2026-09-19-simplification-results.md). [Verification and limitations](docs/VERIFICATION.md).
 
 ## Development
 
