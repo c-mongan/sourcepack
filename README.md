@@ -36,24 +36,25 @@ The skill performs a readiness check and reports missing capabilities. It does n
 ## What a run does
 
 1. Preserve acquired originals and extractor diagnostics; normalize captions separately.
-2. Read all available text in bounded batches.
+2. Browse a compact reading view; original caption text and cue mappings stay intact.
 3. Inspect sampled video frames; request closer windows where a setting or claim needs proof.
 4. Inspect a small number of relevant companion pages or official docs using the host.
 5. Explain findings with timestamps, source locations and explicit gaps.
-6. Save observations so a later search can retrieve the supporting text or original frame.
+6. Save the answer and observations once so later search can retrieve supporting text or frames.
 
-If interrupted, repeat the preparation command and resume pending reading packets. If video acquisition fails, available transcript evidence remains readable; retry only the failed stage. A downloaded source is not automatically marked understood. The host records what it actually inspected; uninspected material remains a gap.
+If interrupted, reuse the run and retry the same findings file. If video acquisition fails, available transcript evidence remains readable; retry only the failed stage. A downloaded source is not automatically marked understood. The host records what it actually inspected; uninspected material remains a gap.
 
 ## Direct helper use
 
 ```sh
 python3 skills/sourcepack/scripts/sourcepack.py doctor
 python3 skills/sourcepack/scripts/sourcepack.py prepare ./notes.md --out /tmp/my-sourcepack-run
-python3 skills/sourcepack/scripts/sourcepack.py read /tmp/my-sourcepack-run
-# The host reads/opens the packet and saves packet_id, inspected_ids, observations
-# and gaps in annotations.json. See SKILL.md for the small annotation format.
-python3 skills/sourcepack/scripts/sourcepack.py record /tmp/my-sourcepack-run ./annotations.json
-python3 skills/sourcepack/scripts/sourcepack.py query /tmp/my-sourcepack-run "retry limit"
+python3 skills/sourcepack/scripts/sourcepack.py inspect /tmp/my-sourcepack-run
+# Read the returned file and open relevant native frames. Save one findings JSON
+# with review_id, inspected_ids, observations and answer. See SKILL.md.
+python3 skills/sourcepack/scripts/sourcepack.py finish /tmp/my-sourcepack-run ./findings.json
+python3 skills/sourcepack/scripts/sourcepack.py query /tmp/my-sourcepack-run "retry limit" --compact
+# Optional portable copy; the run already retains source evidence:
 python3 skills/sourcepack/scripts/sourcepack.py export /tmp/my-sourcepack-run /tmp/my-sourcepack-export
 ```
 
@@ -65,13 +66,13 @@ This is an early, skill-first release. YouTube supports one finite watch URL up 
 
 Public webpages use saved extractor output rather than original HTML snapshots. Local text supports `.txt`, `.md`, `.html`, `.htm`, `.vtt` and `.srt`. The optional basic profile converts local PDF, DOCX, PPTX and XLSX with honest derived locations. It does not establish visual coverage; image-only PDFs need separate visual inspection. Arbitrary media, playlists, authenticated pages and automatic ASR are not integrated. The host can use existing tools for those sources, but the helper does not claim support.
 
-Search is lexical. Observations and image inspection are model self-reports. The core checks ownership and citation structure; it cannot certify semantic truth. SourcePack controls no host model billing. Local storage does not imply local inference. Source URL checks are not a network sandbox.
+Search is lexical, with explicitly labelled prefix and partial-term fallbacks. Observations and image inspection are model self-reports. The core checks ownership and citation structure; it cannot certify semantic truth. SourcePack controls no host model billing. Local storage does not imply local inference. Source URL checks are not a network sandbox.
 
 Runs contain private evidence and possibly sensitive URLs/paths. Keep them outside this repository. Exported source packs also remain private by default; default exports include acquisition originals; retain the run for resume and diagnostic logs.
 
 ## Why this exists
 
-A first 35-minute tutorial case found equal selected-answer scores with and without the evidence layer. It did show process-resume and frame-backed retrieval working. That supports a small reusable skill, not a claim of superior reasoning. The next test is whether the complete skill reduces repeated orchestration work. [Verification and limitations](docs/VERIFICATION.md).
+A first 35-minute tutorial case found equal selected-answer scores with and without the evidence layer. It did show process-resume and frame-backed retrieval working. That supports a small reusable skill, not a claim of superior reasoning. The simplified workflow tied direct tools on 12 repeated video answers but took 49% longer. Keep it for saved evidence and recovery, with no claim of better reasoning or speed. [Repeated comparison](docs/acceptance/2026-09-19-simplification-results.md). [Verification and limitations](docs/VERIFICATION.md).
 
 ## Development
 

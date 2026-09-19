@@ -235,7 +235,7 @@ class Engine:
                 gapped.add(gap['evidence_id'])
             if inspected | gapped != assigned:
                 raise ContractError('Every assigned span needs an inspection record or explicit gap')
-            if not result.observations and not result.gaps:
+            if not result.observations and not result.gaps and not result.no_findings_reason:
                 raise ContractError('Empty observations do not establish completion')
             for obs in result.observations:
                 object_fields(obs, {'text', 'evidence_ids', 'certainty'}, {'quote'})
@@ -257,6 +257,46 @@ class Engine:
                        (accepted_hash, canonical(response), result.task_id))
             self.store.event(db, result.job_id, 'host_result_accepted')
         return response
+
+    def inspection_ticket(self, job_id, evidence_ids, request_id):
+        """Lease an explicit bounded selection, without completing unrelated tasks."""
+        text_value(request_id, 128)
+        if (not isinstance(evidence_ids, list) or not evidence_ids
+                or len(evidence_ids) > self.policy.max_ticket_spans
+                or any(not isinstance(eid, str) for eid in evidence_ids)
+                or len(set(evidence_ids)) != len(evidence_ids)):
+            raise ContractError('Inspection requires unique bounded evidence IDs')
+        with self.store.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            job, _ = self.store.job(db, job_id)
+            if job['cancelled']:
+                raise ContractError('Job was cancelled')
+            spans = [self.store.evidence(db, job_id, eid) for eid in evidence_ids]
+            if sum(len(s['text']) for s in spans) > self.policy.max_ticket_characters:
+                raise ContractError('Inspection exceeds text budget')
+            for span in spans:
+                self.store.path(job_id, span)
+            task_id = 'task-' + digest([job_id, 'selection-v1', request_id, evidence_ids])[:32]
+            row = db.execute('SELECT * FROM tasks WHERE id=?', (task_id,)).fetchone()
+            if row and (row['accepted_hash'] or row['expires_at'] > time.time()):
+                return json.loads(row['ticket'])
+            expires = time.time() + self.policy.lease_seconds
+            ticket = {'schema_version': 'sourcelens.host-ticket.v1', 'job_id': job_id, 'task_id': task_id,
+                      'kind': 'selected-inspection', 'policy_id': self.policy.id,
+                      'source_revision_ids': sorted({s['revision_id'] for s in spans}),
+                      'input_evidence_ids': evidence_ids, 'output_schema': 'sourcelens.host-result.v2',
+                      'attempt_id': 'attempt-' + uuid.uuid4().hex, 'lease_id': 'lease-' + uuid.uuid4().hex,
+                      'lease_expires_at': datetime.fromtimestamp(expires, timezone.utc).isoformat(),
+                      'inspection_provenance': 'model_self_report'}
+            if row:
+                db.execute("UPDATE tasks SET state='awaiting_host',ticket=?,expires_at=? WHERE id=?",
+                           (canonical(ticket), expires, task_id))
+            else:
+                ordinal = db.execute('SELECT COALESCE(MAX(ordinal),-1)+1 FROM tasks WHERE job_id=?', (job_id,)).fetchone()[0]
+                db.execute('INSERT INTO tasks(id,job_id,ordinal,state,ticket,expires_at) VALUES(?,?,?,?,?,?)',
+                           (task_id, job_id, ordinal, 'awaiting_host', canonical(ticket), expires))
+            self.store.event(db, job_id, 'selected_inspection_ticket_issued')
+            return ticket
 
     def synthesize(self, job_id, evidence_ids):
         """Authorize a bounded combination of already inspected job evidence."""
@@ -348,21 +388,33 @@ class Engine:
             observation_rows = db.execute('SELECT payload FROM observation_index WHERE observation_index MATCH ? AND job_id=? ORDER BY rank LIMIT 20',
                                           (expression, job_id)).fetchall()
             prefix_fallback=False
+            partial_fallback=False
             if not rows and not observation_rows:
                 # Conservative lexical fallback, not semantic expansion or SQL interpolation.
                 expression=' AND '.join('"'+(t[:-1] if len(t)>5 and t.endswith('s') else t)+'"'+('*' if len(t)>=4 else '') for t in terms)
                 rows=db.execute('SELECT evidence_id FROM search_index WHERE search_index MATCH ? AND job_id=? ORDER BY rank LIMIT 20',(expression,job_id)).fetchall()
                 observation_rows=db.execute('SELECT payload FROM observation_index WHERE observation_index MATCH ? AND job_id=? ORDER BY rank LIMIT 20',(expression,job_id)).fetchall()
                 prefix_fallback=True
+            if not rows and not observation_rows and len(terms) > 1:
+                # Recover partial lexical matches; clearly label them for host review.
+                meaningful = [t for t in terms if t.lower() not in
+                              {'a','an','the','is','was','were','what','which','did','does','do','it','in','on','of','to','and'}] or terms
+                expression = ' OR '.join('"'+(t[:-1] if len(t)>5 and t.endswith('s') else t)+'"'+('*' if len(t)>=4 else '') for t in meaningful)
+                rows=db.execute('SELECT evidence_id FROM search_index WHERE search_index MATCH ? AND job_id=? ORDER BY rank LIMIT 20',(expression,job_id)).fetchall()
+                observation_rows=db.execute('SELECT payload FROM observation_index WHERE observation_index MATCH ? AND job_id=? ORDER BY rank LIMIT 20',(expression,job_id)).fetchall()
+                partial_fallback=True
         matches = {row[0]: [] for row in rows}
         for row in observation_rows:
             observation = json.loads(row[0])
             for eid in observation['evidence_ids']:
                 matches.setdefault(eid, []).append(observation)
         hits = []
-        for eid, observations in list(matches.items())[:20]:
+        candidates = list(matches.items())
+        if partial_fallback:
+            candidates.sort(key=lambda pair: bool(pair[1]), reverse=True)
+        for eid, observations in candidates[:20]:
             span = self.read(job_id, eid)
-            span['search_match']='prefix-fallback' if prefix_fallback else 'exact-terms'
+            span['search_match']='partial-terms-fallback' if partial_fallback else ('prefix-fallback' if prefix_fallback else 'exact-terms')
             if observations:
                 span['matched_observations'] = observations
             hits.append(span)

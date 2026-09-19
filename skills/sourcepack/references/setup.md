@@ -52,6 +52,6 @@ The [qualification dependency snapshot](runtime-locks/markitdown-macos-py312.txt
 
 ## Reading, recovery and portable exports
 
-`read RUN` and `record RUN ANNOTATIONS.json` hide the lease form while preserving its checks. `retry RUN --stage video` retries the failed capability and reuses successful transcript/metadata receipts. `upgrade-run` retains `run.v1.json` before acquisition resume. A `ready_partial` run can be read immediately.
+`inspect RUN` and `finish RUN FINDINGS.json` browse evidence and save findings in one submission while preserving bounded leases and explicit inspection. The older `read RUN` / `record RUN ANNOTATIONS.json` flow remains compatible. `retry RUN --stage video` retries the failed capability and reuses successful transcript/metadata receipts. `upgrade-run` retains `run.v1.json` before acquisition resume. A `ready_partial` run can be read immediately.
 
 `export RUN DEST` includes acquired originals by default, plus answer/source/visual indexes and observations. Runtime diagnostic files are listed as omissions and remain in the run. `--lightweight` omits acquisition copies explicitly. `support RUN CHILD --role TEXT` registers at most three selected supporting runs; it does not fetch sources or mark them inspected.
