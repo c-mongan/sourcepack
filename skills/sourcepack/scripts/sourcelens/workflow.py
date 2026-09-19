@@ -20,7 +20,7 @@ from .adapters import timestamp, URL
 from .contracts import ContractError
 from .engine import Engine
 
-VERSION = '0.2.0'
+VERSION = '0.3.0'
 TOOL_CONFIG = Path(__file__).resolve().parent.parent / 'tool-paths.json'
 MAX_DOWNLOAD = 256 * 1024 * 1024
 TEXT_SUFFIXES = {'.txt', '.md', '.html', '.htm', '.vtt', '.srt'}
@@ -104,6 +104,10 @@ def source_identity(source):
             raise ContractError('This URL type needs a separate document/media adapter; not supported by the web route')
         return {'kind': 'web', 'source': source}
     p = Path(source).expanduser().resolve(strict=True)
+    if p.suffix.lower() in {'.pdf','.docx','.pptx','.xlsx'}:
+        from .documents import document_preflight
+        document_preflight(p)
+        return {'kind':'document','source':str(p),'sha256':sha(p)}
     if not p.is_file() or p.suffix.lower() not in TEXT_SUFFIXES:
         raise ContractError('Supported local inputs: UTF-8 txt, md, html, vtt, srt')
     if p.stat().st_size > 64 * 1024 * 1024:
@@ -125,19 +129,19 @@ def locked(run):
 def load(run):
     run = Path(run).resolve(strict=True)
     m = json.loads((run / 'run.json').read_text())
-    if m.get('schema') != 'sourcepack.run.v1': raise ContractError('Not a SourcePack run')
+    if m.get('schema') not in ('sourcepack.run.v1','sourcepack.run.v2'): raise ContractError('Not a SourcePack run')
     return run, m
 
 
 def check_artifacts(run, m):
     for name, expected in m.get('artifacts', {}).items():
         p = run / name
-        if p.is_symlink() or not p.is_file() or sha(p) != expected:
+        if Path(name).is_absolute() or '..' in Path(name).parts or not p.resolve().is_relative_to(run.resolve()) or any(x.is_symlink() for x in [p,*p.parents] if x!=run and x.is_relative_to(run)) or not p.is_file() or sha(p) != expected:
             raise ContractError(f'Acquired artifact changed or missing: {name}; use a new run')
 
 
 def summarize(run, source):
-    raw = run_tool(run, 'summarize', command('summarize') + [source, '--extract', '--json', '--format', 'md',
+    raw = run_tool(run, 'summarize', command('summarize') + [source, '--extract', '--json', '--timestamps', '--format', 'md',
         '--youtube', 'web', '--firecrawl', 'off', '--markdown-mode', 'readability', '--preprocess', 'off',
         '--embedded-video', 'off', '--no-slides', '--no-slides-ocr', '--no-cache', '--no-media-cache', '--timeout', '60s'])
     data = json.loads(raw)
@@ -186,55 +190,78 @@ def probe(run, path):
 
 
 def extract_youtube(run, m):
-    acquired = run / 'acquired'; source = m['identity']['source']
-    # Native captions remain useful if Summarize fails. Retain the failure receipt.
-    try: (acquired / 'extraction.json').write_bytes(summarize(run, source))
-    except (ContractError, ValueError) as exc: m['gaps'].append('Summarize route failed: ' + str(exc))
-    ytdlp = command('yt-dlp') + ['--ignore-config', '--no-playlist', '--socket-timeout', '20', '--retries', '1']
-    metadata = run_tool(run, 'metadata', ytdlp + ['--skip-download', '--dump-single-json', source])
-    info = json.loads(metadata); (acquired / 'metadata.json').write_bytes(metadata)
-    duration = info.get('duration')
-    if not isinstance(duration, (int, float)) or not 0 < duration <= 3600 or info.get('is_live'):
-        raise ContractError('This release supports finite YouTube videos up to one hour')
-    run_tool(run, 'captions', ytdlp + ['--skip-download', '--write-subs', '--write-auto-subs', '--sub-langs',
-        'en-orig,en', '--sub-format', 'vtt', '-o', str(acquired/'video.%(ext)s'), source], 180)
-    captions = sorted(acquired.glob('video.*.vtt'), key=lambda p: ('.en-orig.' not in p.name, p.name))
-    m['imports'] = []
-    if captions:
-        normalized = acquired / 'captions-normalized.vtt'
-        normalized.write_text(normalize_vtt(captions[0].read_text()), encoding='utf-8')
-        m['imports'].append({'path': str(normalized.relative_to(run)), 'format': None})
-        m['gaps'].append('Captions may be automatic. Speech accuracy is unverified; normalized captions strip markup and rolling overlap. Originals retained.')
-    elif (acquired/'extraction.json').exists():
-        m['imports'].append({'path': 'acquired/extraction.json', 'format': 'summarize'})
-        m['gaps'].append('No English VTT captions found; extracted text may lack timing.')
-    else:
-        m['gaps'].append('No transcript available. No ASR or paid fallback invoked; visual-only inspection.')
-    run_tool(run, 'video', ytdlp + ['--max-filesize', str(MAX_DOWNLOAD), '-f', 'bestvideo[height<=720][ext=mp4]',
-        '-o', str(acquired/'video.mp4'), source], 600)
-    media = acquired/'video.mp4'
-    if not media.exists() or media.stat().st_size > MAX_DOWNLOAD:
-        raise ContractError('No video within the 256 MiB acquisition budget')
-    m['gaps'].append('Video-only rendition acquired; audio not independently inspected. Frame samples cannot establish continuous visual coverage.')
-    segments = acquired/'segments'; segments.mkdir(exist_ok=True)
-    # Retry only in our owned directory. ffmpeg overwrites its own deterministic outputs.
-    run_tool(run, 'segment', command('ffmpeg') + ['-v', 'error', '-nostdin', '-y', '-protocol_whitelist', 'file,pipe',
-        '-f', 'mov', '-copyts', '-i', str(media), '-map', '0:v:0', '-c', 'copy', '-an', '-f', 'segment',
-        '-segment_time', '240', '-reset_timestamps', '0', str(segments/'segment-%03d.mp4')], 180)
-    clips = sorted(segments.glob('segment-*.mp4'))
-    if not clips or len(clips) > 20: raise ContractError('Unexpected segment count')
-    for clip in clips:
-        meta = probe(run, clip); stream = next(x for x in meta['streams'] if x['codec_type']=='video')
-        d = float(stream.get('duration') or meta['format']['duration'])
-        if not 0 < d <= 300 or clip.stat().st_size > 64*1024*1024:
-            raise ContractError('A keyframe-aligned segment exceeds core bounds; narrower source required')
-        m['imports'].append({'path': str(clip.relative_to(run)), 'format': None})
-    description = info.get('description') or ''
-    m['outbound_links'] = [{'url': x.rstrip('.,;)'), 'status': 'not_inspected'} for x in dict.fromkeys(URL.findall(description))]
-    m['gaps'].append('Companion links are inventoried, not fetched. The host chooses relevant sources under the skill workflow.')
+    from .stages import run_stage
+    from .normalized import cues_from_vtt, group_cues, payload_for
+    acquired=run/'acquired'; source=m['identity']['source']; m['imports']=[]
+    ytdlp=command('yt-dlp')+['--ignore-config','--no-playlist','--socket-timeout','20','--retries','1']
+    def metadata_action():
+        p=acquired/'metadata.json';p.write_bytes(run_tool(run,'metadata',ytdlp+['--skip-download','--dump-single-json',source]));return [p]
+    try:
+        run_stage(run,m,'metadata',{'argv':ytdlp,'source':source},metadata_action)
+        info=json.loads((acquired/'metadata.json').read_text())
+        duration=info.get('duration')
+        if type(duration) not in (int,float) or not 0<duration<=3600 or info.get('is_live'):
+            raise ContractError('This release supports finite YouTube videos up to one hour')
+    except (ContractError,ValueError) as exc:
+        m['gaps'].append('Metadata unavailable: '+str(exc));info={};duration=None
+    def transcript_action():
+        originals=[];cues=None
+        try:
+            path=acquired/'extraction.json';path.write_bytes(summarize(run,source));originals.append(path)
+            segments=json.loads(path.read_text()).get('extracted',{}).get('transcriptSegments')
+            if segments:cues=[{'id':str(i),'start_ms':x['startMs'],'end_ms':x.get('endMs'),'text':x['text']} for i,x in enumerate(segments)]
+        except (ContractError,ValueError,KeyError) as exc:m['gaps'].append('Summarize route failed: '+str(exc))
+        try:
+            run_tool(run,'captions',ytdlp+['--skip-download','--write-subs','--write-auto-subs','--sub-langs','en-orig,en','--sub-format','vtt','-o',str(acquired/'video.%(ext)s'),source],180)
+        except ContractError as exc:m['gaps'].append('Caption download failed: '+str(exc))
+        captions=sorted(acquired.glob('video.*.vtt'),key=lambda p:('.en-orig.' not in p.name,p.name))
+        originals.extend(captions)
+        if cues:original=acquired/'extraction.json'
+        elif captions:original=captions[0];cues=cues_from_vtt(original.read_text())
+        else:raise ContractError('No timed transcript available; no ASR or paid fallback invoked')
+        if captions:
+            try:
+                legacy=acquired/'captions-normalized.vtt';legacy.write_text(normalize_vtt(captions[0].read_text()));originals.append(legacy)
+            except ContractError:pass
+        out=acquired/'transcript.json'
+        write_json(out,payload_for(original,group_cues(cues,sha(original)),acquired,'timed-transcript-v1',origin=source))
+        return [*originals,out]
+    try:
+        run_stage(run,m,'transcript',{'summarize':command('summarize'),'yt-dlp':ytdlp,'revision':'grouped-v1'},transcript_action)
+        m['imports'].append({'path':'acquired/transcript.json','format':'normalized'})
+        m['gaps'].append('Captions may be automatic; speech accuracy unverified. Original cues and timing retained; grouped text is derived.')
+    except (ContractError,ValueError) as exc:m['gaps'].append('Transcript: '+str(exc))
+    m['outbound_links']=[{'url':x.rstrip('.,;)'),'status':'not_inspected'} for x in dict.fromkeys(URL.findall(info.get('description') or ''))]
+    if m.get('detail')=='text':
+        m.setdefault('stages',{})['video']={'status':'skipped','reason':'text-only request'}
+        m['gaps'].append('Text-only request: video visuals not acquired or inspected.');return
+    if duration is None:
+        m.setdefault('stages',{})['video']={'status':'failed','error':'Valid bounded metadata required'};return
+    def video_action():
+        media=acquired/'video.mp4'
+        run_tool(run,'video',ytdlp+['--max-filesize',str(MAX_DOWNLOAD),'-f','bestvideo[height<=720][ext=mp4]','-o',str(media),source],600)
+        if not media.exists() or media.stat().st_size>MAX_DOWNLOAD:raise ContractError('No video within acquisition budget')
+        return [media]
+    try:run_stage(run,m,'video',{'argv':ytdlp,'source':source,'height':720},video_action)
+    except ContractError as exc:m['gaps'].append('Video: '+str(exc));return
+    def visual_action():
+        segments=acquired/'segments';segments.mkdir(exist_ok=True)
+        run_tool(run,'segment',command('ffmpeg')+['-v','error','-nostdin','-y','-protocol_whitelist','file,pipe','-f','mov','-copyts','-i',str(acquired/'video.mp4'),'-map','0:v:0','-c','copy','-an','-f','segment','-segment_time','240','-reset_timestamps','0',str(segments/'segment-%03d.mp4')],180)
+        clips=sorted(segments.glob('segment-*.mp4'))
+        if not clips or len(clips)>20:raise ContractError('Unexpected segment count')
+        for clip in clips:
+            meta=probe(run,clip);stream=next(x for x in meta['streams'] if x['codec_type']=='video')
+            d=float(stream.get('duration') or meta['format']['duration'])
+            if not 0<d<=300 or clip.stat().st_size>64*1024*1024:raise ContractError('A segment exceeds core bounds')
+        return clips
+    try:
+        clips=run_stage(run,m,'visual-index',{'argv':command('ffmpeg'),'detail':m.get('detail','auto')},visual_action)
+        m['imports'].extend({'path':str(p.relative_to(run)),'format':None} for p in clips)
+    except ContractError as exc:m['gaps'].append('Visual index: '+str(exc))
+    m['gaps'].append('Video-only rendition; audio not independently inspected. Bounded frame samples can miss brief events.')
 
 
-def prepare(source, destination):
+def prepare(source, destination, question=None, detail=None, document_profile=None):
     identity = source_identity(source); run = Path(destination).absolute()
     if run.is_symlink(): raise ContractError('Run directory cannot be a symlink')
     if run.exists():
@@ -243,14 +270,25 @@ def prepare(source, destination):
         if m['identity'] != identity: raise ContractError('Source changed; choose a new run directory')
     else:
         run.mkdir(parents=True, mode=0o700)
-        m = {'schema': 'sourcepack.run.v1', 'version': VERSION, 'identity': identity,
+        m = {'schema': 'sourcepack.run.v2', 'version': VERSION, 'identity': identity,
              'created_at': datetime.now(timezone.utc).isoformat(), 'status': 'acquiring',
              'jobs': [], 'gaps': [], 'artifacts': {}, 'outbound_links': []}
         write_json(run/'run.json', m)
     run = run.resolve()
     with locked(run):
         _, m = load(run); check_artifacts(run, m)
-        if m['status'] == 'ready': return m
+        if document_profile and document_profile!=m.get('document_profile','documents-basic'):
+            from .stages import invalidate
+            invalidate(m,'documents')
+        m['document_profile']=document_profile or m.get('document_profile','documents-basic')
+        if question and not any(x['question']==question for x in m.setdefault('analysis_requests',[])):
+            m['analysis_requests'].append({'question':question,'created_at':datetime.now(timezone.utc).isoformat()})
+        if detail and detail != m.get('detail','auto'):
+            from .stages import invalidate
+            invalidate(m,'video' if m.get('detail')=='text' else 'visual-index')
+        m['detail']=detail or m.get('detail','auto');write_json(run/'run.json',m)
+        if m['status'] in ('ready','ready_partial'): return m
+        if m['schema']=='sourcepack.run.v1':raise ContractError('Use upgrade-run before acquisition resume')
         (run/'acquired').mkdir(exist_ok=True, mode=0o700)
         try:
             if not m.get('acquisition_complete'):
@@ -259,26 +297,64 @@ def prepare(source, destination):
                     target=run/'acquired'/('source'+Path(identity['source']).suffix.lower())
                     shutil.copyfile(identity['source'],target)
                     m['imports']=[{'path':str(target.relative_to(run)),'format':None}]
+                elif identity['kind']=='document':
+                    from .documents import convert_document
+                    config=json.loads(TOOL_CONFIG.read_text()) if TOOL_CONFIG.exists() else {}
+                    profile=m.get('document_profile','documents-basic')
+                    options=config.get(profile,{})
+                    from .stages import run_stage
+                    def convert():
+                        converted=convert_document(Path(identity['source']),run/'acquired/document',profile,options)
+                        m['gaps'].extend(converted.get('gaps',[]))
+                        return [p for p in (run/'acquired/document').rglob('*') if p.is_file()]
+                    run_stage(run,m,'documents',{'profile':profile,'config':options},convert)
+                    m['imports']=[{'path':'acquired/document/normalized.json','format':'normalized'}]
                 elif identity['kind']=='web': extract_web(run,m)
                 else: extract_youtube(run,m)
                 m['artifacts']={str(p.relative_to(run)):sha(p) for p in sorted((run/'acquired').rglob('*')) if p.is_file()}
                 m['acquisition_complete']=True; write_json(run/'run.json',m)
-            engine=Engine(run/'state',run/'acquired')
-            m['jobs']=[]
+            video_count=sum(Path(x['path']).suffix in ('.mp4','.mov','.webm','.mkv') for x in m['imports'])
+            media_options={'max_frames':min(12,max(1,96//max(1,video_count))),'ffmpeg':command('ffmpeg'),'ffprobe':command('ffprobe')}
+            engine=Engine(run/'state',run/'acquired',media_options=media_options)
+            m.setdefault('jobs',[])
             for item in m['imports']:
-                result=engine.ingest(run/item['path'],input_format=item['format'])
-                m['jobs'].append({'job_id':result['job_id'],'source':item['path']})
+                try:result=engine.ingest(run/item['path'],input_format=item['format'])
+                except ContractError as exc:
+                    if Path(item['path']).suffix not in ('.mp4','.mov','.webm','.mkv'):raise
+                    m.setdefault('stages',{}).setdefault('visual-index',{}).update(status='failed',error=str(exc))
+                    m['gaps'].append('Video import failed: '+str(exc));continue
+                if result['job_id'] not in {j['job_id'] for j in m['jobs']}:
+                    m['jobs'].append({'job_id':result['job_id'],'source':item['path']})
                 write_json(run/'run.json',m)
-            m['status']='ready';m.pop('error',None);write_json(run/'run.json',m)
+            if not m['jobs']:raise ContractError('No usable evidence acquired; inspect stage gaps')
+            m['status']='ready_partial' if any(x.get('status')=='failed' for x in m.get('stages',{}).values()) else 'ready';m.pop('error',None);write_json(run/'run.json',m)
             return m
         except Exception as exc:
             m['status']='failed';m['error']=str(exc);write_json(run/'run.json',m)
             raise
 
 
+def upgrade_run(run):
+    run,m=load(run)
+    with locked(run):
+        if m['schema']=='sourcepack.run.v2':return m
+        backup=run/'run.v1.json'
+        if backup.exists():raise ContractError('Upgrade backup exists; inspect previous attempt')
+        shutil.copyfile(run/'run.json',backup)
+        m['schema']='sourcepack.run.v2';m.setdefault('stages',{});write_json(run/'run.json',m)
+    return m
+
+def retry(run,stage):
+    from .stages import invalidate, DEPENDENTS
+    run,m=load(run)
+    if stage not in DEPENDENTS:raise ContractError('Unknown acquisition stage')
+    with locked(run):
+        _,m=load(run);invalidate(m,stage);write_json(run/'run.json',m)
+    return prepare(m['identity']['source'],run)
+
 def next_ticket(run):
     run,m=load(run)
-    if m['status']!='ready':raise ContractError('Run is not ready; retry prepare with the same source')
+    if m['status'] not in ('ready','ready_partial'):raise ContractError('Run is not ready; retry prepare with the same source')
     engine=Engine(run/'state',run/'acquired')
     for job in m['jobs']:
         result=engine.advance(job['job_id'])
@@ -316,54 +392,93 @@ def focus(run,start,end):
             run_tool(run,'focus',command('ffmpeg')+['-v','error','-nostdin','-y','-protocol_whitelist','file,pipe',
                 '-ss',str(start),'-to',str(end),'-copyts','-f','mov','-i',str(run/'acquired/video.mp4'),
                 '-map','0:v:0','-an','-c','copy',str(clip)],120)
-        result=Engine(run/'state',run/'acquired').ingest(clip)
+        options={'max_frames':12,'ffmpeg':command('ffmpeg'),'ffprobe':command('ffprobe'),'start_ms':round(start*1000),'end_ms':round(end*1000)}
+        engine=Engine(run/'state',run/'acquired',media_options=options)
+        total=sum(sum(s['kind']=='frame' for s in engine.snapshot(j['job_id'])['spans']) for j in m['jobs'])
+        existing=next((j for j in m['jobs'] if j['source']==str(clip.relative_to(run))),None)
+        if not existing and total+12>144:raise ContractError('Collection frame budget exhausted')
+        result=engine.ingest(clip)
         if result['job_id'] not in {j['job_id'] for j in m['jobs']}:
             m['jobs'].append({'job_id':result['job_id'],'source':str(clip.relative_to(run))})
         m['artifacts'][str(clip.relative_to(run))]=sha(clip);write_json(run/'run.json',m)
         return result
 
 
-def export_run(run,destination):
-    run,m=load(run);check_artifacts(run,m);dest=Path(destination).absolute()
-    if dest.exists():raise ContractError('Export destination must not exist')
-    engine=Engine(run/'state',run/'acquired')
-    with tempfile.TemporaryDirectory(dir=dest.parent,prefix='.sourcepack-export-') as temp:
-        staging=Path(temp)/'pack';staging.mkdir(mode=0o700)
-        links=[]
-        for i,job in enumerate(m['jobs']):
-            name=f'source-{i+1:03d}';engine.export(job['job_id'],staging/name)
-            links.append(f'- [{job["source"]}]({name}/index.md)')
-        write_json(staging/'run.json',m)
-        (staging/'index.md').write_text('# SourcePack evidence\n\nPrivate evidence; not a certification of semantic accuracy.\n\n'+'\n'.join(links)+'\n\n## Acquisition gaps\n\n'+'\n'.join('- '+g for g in m['gaps'])+'\n')
-        write_json(staging/'manifest.json',{'schema':'sourcepack.collection.v1','files':{str(p.relative_to(staging)):sha(p) for p in staging.rglob('*') if p.is_file()},'note':'Source exports include imported bytes. Additional acquisition originals and logs remain in the run directory; keep it.'})
-        os.rename(staging,dest)
-    return {'status':'exported','path':str(dest),'retain_run_for_acquisition_originals':True}
+def export_run(run,destination,include_originals=True):
+    from .pack import build_pack
+    return build_pack(run,destination,include_originals)
 
 
 def doctor():
-    return {'version':VERSION,'python':sys.version.split()[0], 'platform':sys.platform,
-            'tools':{t: {'argv':command(t),'found':bool(shutil.which(command(t)[0]))} for t in ('summarize','yt-dlp','ffmpeg','ffprobe')},
-            'note':'Availability is not successful extraction. No installs, model calls or account changes performed.'}
+    tools={}
+    for name in ('summarize','yt-dlp','ffmpeg','ffprobe'):
+        argv=command(name);found=bool(shutil.which(argv[0]));version=None;error=None
+        if found:
+            try:
+                p=subprocess.run(argv+(['-version'] if name in ('ffmpeg','ffprobe') else ['--version']),capture_output=True,timeout=8,env=extraction_env())
+                version=(p.stdout or p.stderr).decode(errors='replace').splitlines()[0][:200]
+                if p.returncode:error='Version probe failed'
+            except (OSError,subprocess.SubprocessError,IndexError):error='Version probe unavailable'
+        tools[name]={'argv':argv,'found':found,'version':version,'error':error}
+    config=json.loads(TOOL_CONFIG.read_text()) if TOOL_CONFIG.exists() else {};profiles={}
+    for name,package in [('documents-basic','markitdown'),('documents-layout','docling-slim')]:
+        options=config.get(name,{});argv=options.get('argv') if isinstance(options,dict) else None
+        result={'ready':False,'version':None,'gap':'Optional interpreter not configured'}
+        if isinstance(argv,list) and argv:
+            try:
+                code='from importlib.metadata import version; print(version('+repr(package)+'))'
+                p=subprocess.run(argv+['-c',code],capture_output=True,timeout=10,env=extraction_env())
+                result={'ready':p.returncode==0,'version':p.stdout.decode().strip() or None,'gap':None if p.returncode==0 else 'Package unavailable in configured interpreter'}
+                if name=='documents-layout':
+                    from .documents import layout_readiness
+                    readiness=layout_readiness(options);result['ready']=result['ready'] and readiness['ready'];result['layout']=readiness
+            except (OSError,subprocess.SubprocessError):result['gap']='Interpreter unavailable'
+        profiles[name]=result
+    return {'version':VERSION,'python':sys.version.split()[0],'platform':sys.platform,'tools':tools,'profiles':profiles,
+            'note':'Version/readiness probes do not prove extraction. No installs, model downloads or account changes.'}
 
 
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__);sub=p.add_subparsers(dest='action',required=True)
     sub.add_parser('doctor')
-    a=sub.add_parser('prepare');a.add_argument('source');a.add_argument('--out',required=True)
+    a=sub.add_parser('prepare');a.add_argument('source');a.add_argument('--out',required=True);a.add_argument('--question');a.add_argument('--detail',choices=['auto','text','deep']);a.add_argument('--document-profile',choices=['documents-basic','documents-layout'])
+    a=sub.add_parser('retry');a.add_argument('run');a.add_argument('--stage',required=True)
+    a=sub.add_parser('upgrade-run');a.add_argument('run')
     a=sub.add_parser('next');a.add_argument('run')
+    a=sub.add_parser('read');a.add_argument('run')
+    a=sub.add_parser('record');a.add_argument('run');a.add_argument('annotations')
     a=sub.add_parser('submit');a.add_argument('run');a.add_argument('result')
     a=sub.add_parser('query');a.add_argument('run');a.add_argument('text')
     a=sub.add_parser('focus');a.add_argument('run');a.add_argument('start',type=float);a.add_argument('end',type=float)
-    a=sub.add_parser('export');a.add_argument('run');a.add_argument('destination')
+    a=sub.add_parser('export');a.add_argument('run');a.add_argument('destination');a.add_argument('--lightweight',action='store_true')
+    a=sub.add_parser('support');a.add_argument('run');a.add_argument('child_run');a.add_argument('--role',required=True)
+    a=sub.add_parser('answer');a.add_argument('run');a.add_argument('file')
     args=p.parse_args(argv)
     try:
         if args.action=='doctor':result=doctor()
-        elif args.action=='prepare':result=prepare(args.source,args.out)
+        elif args.action=='prepare':result=prepare(args.source,args.out,args.question,args.detail,args.document_profile)
+        elif args.action=='retry':result=retry(args.run,args.stage)
+        elif args.action=='upgrade-run':result=upgrade_run(args.run)
         elif args.action=='next':result=next_ticket(args.run)
+        elif args.action=='read':
+            from .packets import present_packet
+            result=present_packet(args.run)
+        elif args.action=='record':
+            from .packets import record_packet
+            p=Path(args.annotations)
+            if p.stat().st_size>64000:raise ContractError('Annotation byte budget exceeded')
+            annotations=json.loads(p.read_text());packet_id=annotations.pop('packet_id')
+            result=record_packet(args.run,packet_id,annotations)
         elif args.action=='submit':result=submit(args.run,args.result)
         elif args.action=='query':result=query(args.run,args.text)
         elif args.action=='focus':result=focus(args.run,args.start,args.end)
-        else:result=export_run(args.run,args.destination)
+        elif args.action=='support':
+            from .pack import register_supporting_source
+            result=register_supporting_source(args.run,args.child_run,args.role)
+        elif args.action=='answer':
+            from .pack import save_answer
+            result=save_answer(args.run,args.file)
+        else:result=export_run(args.run,args.destination,not args.lightweight)
         print(json.dumps({'status':'ok','data':result},ensure_ascii=False));return 0
     except (OSError,ValueError,KeyError,TypeError) as exc:
         print(json.dumps({'status':'error','error':str(exc)},ensure_ascii=False));return 2

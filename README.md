@@ -2,7 +2,7 @@
 
 **Give your coding agent a source. Get an explanation you can check and return to.**
 
-SourcePack is an installable skill for inspecting YouTube videos, public webpages and local text. It coordinates existing extraction tools, asks the host agent to read the text and inspect video frames, and saves observations against their original evidence.
+SourcePack is an installable skill for inspecting YouTube videos, public webpages, local text and optional PDF/Office documents. It coordinates existing extraction tools, asks the host agent to read the text and inspect video frames, and saves observations against their original evidence.
 
 ```text
 “Use SourcePack to explain this tutorial. Check the settings shown on screen,
@@ -23,11 +23,13 @@ python3 scripts/install.py --skills-dir ~/.codex/skills
 
 For other skill-compatible agents, choose their skill directory, such as `~/.agents/skills`. The installer copies one self-contained folder and refuses to overwrite an existing installation. Reload skill discovery or start a new agent session, then ask it to use **SourcePack**. Cross-host behavior beyond Codex has not been validated.
 
-Install extraction dependencies separately:
+Install extraction dependencies separately; document runtimes remain optional:
 
 - **Web:** [Summarize](https://github.com/steipete/summarize), tested with `@steipete/summarize@0.22.0` and Node >=24.
 - **YouTube:** [yt-dlp](https://github.com/yt-dlp/yt-dlp), [ffmpeg/ffprobe](https://ffmpeg.org/), plus Summarize as the first transcript candidate.
 - **Local UTF-8 text:** no external Python packages or media tools.
+- **PDF/DOCX/PPTX/XLSX:** isolated MarkItDown profile; exact qualified build and setup in [setup](skills/sourcepack/references/setup.md).
+- **Docling layout:** experimental adapter is disabled pending offline model qualification. OCR is disabled.
 
 The skill performs a readiness check and reports missing capabilities. It does not auto-install software, buy credits, download models or change provider settings. [Setup and executable overrides](skills/sourcepack/references/setup.md).
 
@@ -40,17 +42,17 @@ The skill performs a readiness check and reports missing capabilities. It does n
 5. Explain findings with timestamps, source locations and explicit gaps.
 6. Save observations so a later search can retrieve the supporting text or original frame.
 
-If interrupted, repeat the preparation command and resume pending inspection tickets. A downloaded source is not automatically marked understood. The host records what it actually inspected; uninspected material remains a gap.
+If interrupted, repeat the preparation command and resume pending reading packets. If video acquisition fails, available transcript evidence remains readable; retry only the failed stage. A downloaded source is not automatically marked understood. The host records what it actually inspected; uninspected material remains a gap.
 
 ## Direct helper use
 
 ```sh
 python3 skills/sourcepack/scripts/sourcepack.py doctor
 python3 skills/sourcepack/scripts/sourcepack.py prepare ./notes.md --out /tmp/my-sourcepack-run
-python3 skills/sourcepack/scripts/sourcepack.py next /tmp/my-sourcepack-run
-# The host reads/opens the supplied evidence, fills the returned result_template,
-# and saves result.json before submitting it.
-python3 skills/sourcepack/scripts/sourcepack.py submit /tmp/my-sourcepack-run ./result.json
+python3 skills/sourcepack/scripts/sourcepack.py read /tmp/my-sourcepack-run
+# The host reads/opens the packet and saves packet_id, inspected_ids, observations
+# and gaps in annotations.json. See SKILL.md for the small annotation format.
+python3 skills/sourcepack/scripts/sourcepack.py record /tmp/my-sourcepack-run ./annotations.json
 python3 skills/sourcepack/scripts/sourcepack.py query /tmp/my-sourcepack-run "retry limit"
 python3 skills/sourcepack/scripts/sourcepack.py export /tmp/my-sourcepack-run /tmp/my-sourcepack-export
 ```
@@ -61,11 +63,11 @@ Choose a new output directory for each source or refreshed snapshot. Reusing the
 
 This is an early, skill-first release. YouTube supports one finite watch URL up to one hour, English captions, and a video-only MP4 rendition up to 720p/256 MiB. Clips remain under the core's five-minute/64 MiB bounds. Keyframe alignment can cause a clip to exceed those bounds; that fails explicitly. Frame inspection is sparse and can miss brief events.
 
-Public webpages use saved extractor output rather than original HTML snapshots. Local text supports `.txt`, `.md`, `.html`, `.htm`, `.vtt` and `.srt`. PDFs, office files, arbitrary media, playlists, authenticated pages and automatic ASR are not integrated. The host can use existing tools for those sources, but the helper does not claim support.
+Public webpages use saved extractor output rather than original HTML snapshots. Local text supports `.txt`, `.md`, `.html`, `.htm`, `.vtt` and `.srt`. The optional basic profile converts local PDF, DOCX, PPTX and XLSX with honest derived locations. It does not establish visual coverage; image-only PDFs need separate visual inspection. Arbitrary media, playlists, authenticated pages and automatic ASR are not integrated. The host can use existing tools for those sources, but the helper does not claim support.
 
 Search is lexical. Observations and image inspection are model self-reports. The core checks ownership and citation structure; it cannot certify semantic truth. SourcePack controls no host model billing. Local storage does not imply local inference. Source URL checks are not a network sandbox.
 
-Runs contain private evidence and possibly sensitive URLs/paths. Keep them outside this repository. Exported source packs also remain private by default; retain the run for acquisition originals and logs.
+Runs contain private evidence and possibly sensitive URLs/paths. Keep them outside this repository. Exported source packs also remain private by default; default exports include acquisition originals; retain the run for resume and diagnostic logs.
 
 ## Why this exists
 
@@ -81,6 +83,6 @@ Media tests need ffmpeg/ffprobe; otherwise they skip explicitly. Tests use local
 
 [Reuse decisions](docs/REUSE.md) · [Design](docs/DESIGN.md) · [Contracts](skills/sourcepack/references/contracts.md) · [MIT licence](LICENSE)
 
-## Planned next iteration
+## Evaluation and design
 
-[Seven-repository review and implementation plan](docs/planning/README.md): simpler video inspection, partial recovery, and optional MarkItDown/Docling document adapters. These are planned changes; the supported formats and limits above describe the current runtime.
+[Seven-repository design](docs/planning/README.md) guided the 0.3 implementation. [Evaluation protocol](docs/acceptance/one-skill-protocol.md) and bundled eval cases distinguish helper tests, live conversion, answer quality and automatic triggering. See [verification](docs/VERIFICATION.md) for actual outcomes and remaining qualification limits.

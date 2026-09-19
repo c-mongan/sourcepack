@@ -1,6 +1,6 @@
 # SourcePack reuse review and next build
 
-Seven upstream repositories were cloned at fixed commits and selected source files reviewed. This is a design/implementation plan, not a claim that new adapters are already working.
+Seven upstream repositories were cloned at fixed commits and selected source files reviewed. This directory preserves the original design/implementation plan. See [qualification results](../acceptance/2026-09-19-results.md) for what is now implemented, tested or still unqualified.
 
 - [Design and reuse decisions](ONE-SKILL-DESIGN.md)
 - [Executable implementation plan](../superpowers/plans/2026-09-19-sourcepack-one-skill.md)

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sourcepack-sourcelens"
-version = "0.2.0"
+version = "0.3.0"
 description = "A source-inspection skill with traceable evidence and resumable local jobs"
 requires-python = ">=3.11"
 license = "MIT"

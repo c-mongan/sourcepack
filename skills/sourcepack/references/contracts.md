@@ -13,3 +13,13 @@
 - Each successful acquisition stage is hashed before ingestion. Failed acquisition attempts keep logs; retry may repeat downloads. Ingestion resumes idempotently. Process locks release when a process exits. Do not run two writers against one run.
 
 For advanced core commands, run `python3 SKILL_DIR/scripts/sourcelens_cli.py --help`. Select the collection's `RUN/state` and `RUN/acquired` explicitly. No task cancellation, migration rollback or file cleanup occurs automatically.
+
+## Derived imports and stage-aware runs
+
+New runs use `sourcepack.run.v2`; v1 remains readable, and `upgrade-run` preserves a copy before resuming acquisition. Independent stage receipts include options hashes, artifact hashes, attempts and explicit failures. `ready_partial` permits inspection of available evidence.
+
+`sourcepack.normalized.v1` imports associate bounded blocks with an original file hash and optional hashed assets. Transcript blocks preserve child cue IDs, source times and text-offset maps. Originals are retained as source artifacts. This importer validates byte association, not semantic fidelity. Legacy adapters and evidence IDs remain unchanged.
+
+Normalized source records use `source: {path, sha256, origin}`, `producer`, `blocks` and `assets`. Paths resolve relative to the payload directory within the authorized input root. Each block includes `id`, `kind`, bounded `text`, `method`, `source_sha256` and `locator`. Transcript `cue_map` items map original cue text offsets to block offsets without dropping repeated words. Hashed assets retain their own locator and source association. Images must be individually inspected; native page coordinates retain their producer coordinate basis.
+
+`read` returns a `packet_id` bound to the full engine ticket, including lease identity. `record` accepts only `inspected_ids`, `observations` and `gaps`; it delegates to existing result validation. Each unread assigned item needs a gap. A source registered in the root collection is not authorization to cite its uninspected evidence.

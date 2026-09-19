@@ -48,3 +48,7 @@ The installer copied the skill into Codex discovery with private, per-install ex
 - Public rights to captured media. Tests and reports in this repo contain no captured user evidence.
 
 All analysis evidence, local machine paths and raw receipts remain outside the published repository. No model downloads or paid extraction were used.
+
+## 0.3 implementation and evaluation
+
+See [2026-09-19 qualification results](acceptance/2026-09-19-results.md) for the current regression, real document-conversion, paired answer and fresh-context retrieval evidence. The paired pilot found equal selected-answer quality and higher SourcePack elapsed time; no general accuracy or speed advantage is claimed. Docling remains disabled pending offline model qualification.
