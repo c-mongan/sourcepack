@@ -1,0 +1,194 @@
+{
+  "retrieved_at": "2026-09-19T16:59:03.873880+00:00",
+  "scope": "Selected static source inspection, not upstream execution. Documentation only; no third-party implementation copied.",
+  "repositories": [
+    {
+      "name": "summarize",
+      "repository": "https://github.com/steipete/summarize",
+      "commit": "a500288d9d6e563dd5faf0d43b54008a07b0e737",
+      "scope": "shallow sparse source inspection; no upstream installation or execution",
+      "licence": "MIT notice found; dependency/model licences require separate review",
+      "inspected_files": [
+        {
+          "path": "LICENSE",
+          "sha256": "14293556b79940745123d0160c71d27ed0e9fe9b8a848093f3ed78f4853caafe",
+          "url": "https://github.com/steipete/summarize/blob/a500288d9d6e563dd5faf0d43b54008a07b0e737/LICENSE"
+        },
+        {
+          "path": ".agents/skills/summarize/SKILL.md",
+          "sha256": "066f0e47b9f95ccd0a9c9cfc360eee6a1fcab99bbbcb8f2a4b7c441bc19c003a",
+          "url": "https://github.com/steipete/summarize/blob/a500288d9d6e563dd5faf0d43b54008a07b0e737/.agents/skills/summarize/SKILL.md"
+        },
+        {
+          "path": "docs/extract-only.md",
+          "sha256": "f7a4b1673823b330d770a52d669aa03fdc152945aed5ed14257b2dd6b778873b",
+          "url": "https://github.com/steipete/summarize/blob/a500288d9d6e563dd5faf0d43b54008a07b0e737/docs/extract-only.md"
+        },
+        {
+          "path": "packages/core/src/content/link-preview/types.ts",
+          "sha256": "11a8ae27760050adba3f2136a316c809a4fc1bb4d3c955687141e986531f1521",
+          "url": "https://github.com/steipete/summarize/blob/a500288d9d6e563dd5faf0d43b54008a07b0e737/packages/core/src/content/link-preview/types.ts"
+        }
+      ]
+    },
+    {
+      "name": "claude-video",
+      "repository": "https://github.com/bradautomates/claude-video",
+      "commit": "83da59fa78c3eee9e20f515fe75c438bb5166efd",
+      "scope": "shallow sparse source inspection; no upstream installation or execution",
+      "licence": "MIT notice found; dependency/model licences require separate review",
+      "inspected_files": [
+        {
+          "path": "LICENSE",
+          "sha256": "add78957ea8124a8ae6eccd7a55c948543a9f32ea26917bf562b8cafacb01d3e",
+          "url": "https://github.com/bradautomates/claude-video/blob/83da59fa78c3eee9e20f515fe75c438bb5166efd/LICENSE"
+        },
+        {
+          "path": "skills/watch/SKILL.md",
+          "sha256": "10dc8e56699e99a97f9b29c25881a3b3d94873d42ee6a2b6a84fef4ead6927b2",
+          "url": "https://github.com/bradautomates/claude-video/blob/83da59fa78c3eee9e20f515fe75c438bb5166efd/skills/watch/SKILL.md"
+        },
+        {
+          "path": "skills/watch/scripts/frames.py",
+          "sha256": "ad317574facd619ff0c5ccbbb86a08b76abc8419c81107d179dbe2a3ba526ae6",
+          "url": "https://github.com/bradautomates/claude-video/blob/83da59fa78c3eee9e20f515fe75c438bb5166efd/skills/watch/scripts/frames.py"
+        }
+      ]
+    },
+    {
+      "name": "ingest-skills",
+      "repository": "https://github.com/timharris707/skills",
+      "commit": "a9317e03733da7f54b5da0eaa8edcb2697495cf5",
+      "scope": "shallow sparse source inspection; no upstream installation or execution",
+      "licence": "MIT notice found; dependency/model licences require separate review",
+      "inspected_files": [
+        {
+          "path": "LICENSE.md",
+          "sha256": "ff536c8aed26e60b9699091d84ce8e0524b168b58241b9dde841a5543619f5df",
+          "url": "https://github.com/timharris707/skills/blob/a9317e03733da7f54b5da0eaa8edcb2697495cf5/LICENSE.md"
+        },
+        {
+          "path": "skills/investigate/ingest/scripts/ingest.py",
+          "sha256": "0ba0dbbd88b7c048ff2596b1a97cd69f25e50f07521826f6b1e7ae4c8b0bfebd",
+          "url": "https://github.com/timharris707/skills/blob/a9317e03733da7f54b5da0eaa8edcb2697495cf5/skills/investigate/ingest/scripts/ingest.py"
+        },
+        {
+          "path": "skills/investigate/ingest/SKILL.md",
+          "sha256": "8df826eb16b3b0f377c20fb4fc1acc3aa090002e938fc3d0cd18c8ad79d3c17b",
+          "url": "https://github.com/timharris707/skills/blob/a9317e03733da7f54b5da0eaa8edcb2697495cf5/skills/investigate/ingest/SKILL.md"
+        }
+      ]
+    },
+    {
+      "name": "skill-seekers",
+      "repository": "https://github.com/yusufkaraaslan/Skill_Seekers",
+      "commit": "bbe9381a3038dd83684314e0198680b669002ed5",
+      "scope": "shallow sparse source inspection; no upstream installation or execution",
+      "licence": "MIT notice found; dependency/model licences require separate review",
+      "inspected_files": [
+        {
+          "path": "LICENSE",
+          "sha256": "fbc4fbffc4598eef4178b4432a4afaa08af9bf9e22724dfd0b45c912a75a1999",
+          "url": "https://github.com/yusufkaraaslan/Skill_Seekers/blob/bbe9381a3038dd83684314e0198680b669002ed5/LICENSE"
+        },
+        {
+          "path": "src/skill_seekers/cli/video_scraper.py",
+          "sha256": "b02f124cfee3310a015eed72ad7c43fa82709ee2c1e4cc7059ebb12a7b78523c",
+          "url": "https://github.com/yusufkaraaslan/Skill_Seekers/blob/bbe9381a3038dd83684314e0198680b669002ed5/src/skill_seekers/cli/video_scraper.py"
+        },
+        {
+          "path": "src/skill_seekers/cli/video_models.py",
+          "sha256": "caa9313a3fc28dd4e8474f97b11880b8f95c190299f5c3117fa88c4192a24eb3",
+          "url": "https://github.com/yusufkaraaslan/Skill_Seekers/blob/bbe9381a3038dd83684314e0198680b669002ed5/src/skill_seekers/cli/video_models.py"
+        }
+      ]
+    },
+    {
+      "name": "source-to-skill",
+      "repository": "https://github.com/michalstrnadel/source-to-skill",
+      "commit": "54e6c212a1bed29a062db3ca73998d85b6ab1499",
+      "scope": "shallow sparse source inspection; no upstream installation or execution",
+      "licence": "MIT notice found; dependency/model licences require separate review",
+      "inspected_files": [
+        {
+          "path": "LICENSE",
+          "sha256": "8f236cf7a3d75981c065801d3962f5dbc07df9862147a9e6c41cde27938468ff",
+          "url": "https://github.com/michalstrnadel/source-to-skill/blob/54e6c212a1bed29a062db3ca73998d85b6ab1499/LICENSE"
+        },
+        {
+          "path": "skills/source-to-skill/SKILL.md",
+          "sha256": "3d9e81839dc87a499697e70b360456a943378e39711e336deefd6514dee7df5d",
+          "url": "https://github.com/michalstrnadel/source-to-skill/blob/54e6c212a1bed29a062db3ca73998d85b6ab1499/skills/source-to-skill/SKILL.md"
+        }
+      ]
+    },
+    {
+      "name": "markitdown",
+      "repository": "https://github.com/microsoft/markitdown",
+      "commit": "945314a45ddbe02935f2fd287b797dc0ba4a01e4",
+      "scope": "shallow sparse source inspection; no upstream installation or execution",
+      "licence": "MIT notice found; dependency/model licences require separate review",
+      "inspected_files": [
+        {
+          "path": "LICENSE",
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+          "url": "https://github.com/microsoft/markitdown/blob/945314a45ddbe02935f2fd287b797dc0ba4a01e4/LICENSE"
+        },
+        {
+          "path": "packages/markitdown/pyproject.toml",
+          "sha256": "ec930a01ea30b4aa0d3384f2a413c8cfbad3abbbe0bc1b7b486a4030faa7c2ab",
+          "url": "https://github.com/microsoft/markitdown/blob/945314a45ddbe02935f2fd287b797dc0ba4a01e4/packages/markitdown/pyproject.toml"
+        },
+        {
+          "path": "packages/markitdown/src/markitdown/_markitdown.py",
+          "sha256": "11f251f2a3bb67d9d4be55d12970c6c8438112a6a2f841f3e94bcac74001afb0",
+          "url": "https://github.com/microsoft/markitdown/blob/945314a45ddbe02935f2fd287b797dc0ba4a01e4/packages/markitdown/src/markitdown/_markitdown.py"
+        },
+        {
+          "path": "packages/markitdown/src/markitdown/converters/_pptx_converter.py",
+          "sha256": "626fc4614e96b4646ef1f927aa5c873e12a323e44822d5629db5fb8b702471fb",
+          "url": "https://github.com/microsoft/markitdown/blob/945314a45ddbe02935f2fd287b797dc0ba4a01e4/packages/markitdown/src/markitdown/converters/_pptx_converter.py"
+        },
+        {
+          "path": "packages/markitdown/src/markitdown/converters/_docx_converter.py",
+          "sha256": "35b6da35a3d2bb940d2c872a092965c249b9f34cb77e3f3dfb76131a110d7302",
+          "url": "https://github.com/microsoft/markitdown/blob/945314a45ddbe02935f2fd287b797dc0ba4a01e4/packages/markitdown/src/markitdown/converters/_docx_converter.py"
+        }
+      ]
+    },
+    {
+      "name": "docling",
+      "repository": "https://github.com/docling-project/docling",
+      "commit": "890dd42d017497c955a56a1d2cfc3f0af5bc2aa9",
+      "scope": "shallow sparse source inspection; no upstream installation or execution",
+      "licence": "MIT notice found; dependency/model licences require separate review",
+      "inspected_files": [
+        {
+          "path": "LICENSE",
+          "sha256": "edb765d1e3e60d0c7a7d5fba5f2bb2c3c29f7465cecb5c22cf1185c884954e4c",
+          "url": "https://github.com/docling-project/docling/blob/890dd42d017497c955a56a1d2cfc3f0af5bc2aa9/LICENSE"
+        },
+        {
+          "path": "pyproject.toml",
+          "sha256": "af0064e20300911d693396ba6a1066547d63becfe01fecdb8574657301e2ae5f",
+          "url": "https://github.com/docling-project/docling/blob/890dd42d017497c955a56a1d2cfc3f0af5bc2aa9/pyproject.toml"
+        },
+        {
+          "path": "docling/document_converter.py",
+          "sha256": "5ec3c1dc4b01a3d222b6a2ea7aacc2cc2c0799b040766ff7784233af424d792a",
+          "url": "https://github.com/docling-project/docling/blob/890dd42d017497c955a56a1d2cfc3f0af5bc2aa9/docling/document_converter.py"
+        },
+        {
+          "path": "docling/datamodel/pipeline_options.py",
+          "sha256": "03638156377f6c4f95a8518d43f1985d5e793e7fcf67ba7e46c16581329989af",
+          "url": "https://github.com/docling-project/docling/blob/890dd42d017497c955a56a1d2cfc3f0af5bc2aa9/docling/datamodel/pipeline_options.py"
+        },
+        {
+          "path": "docs/usage/advanced_options.md",
+          "sha256": "351a7e32f2d77421c81563876f2d0ec73c1f4cd6356b187427ad47034c5a4c24",
+          "url": "https://github.com/docling-project/docling/blob/890dd42d017497c955a56a1d2cfc3f0af5bc2aa9/docs/usage/advanced_options.md"
+        }
+      ]
+    }
+  ]
+}

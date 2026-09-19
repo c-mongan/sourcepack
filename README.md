@@ -80,3 +80,7 @@ PYTHONPATH=skills/sourcepack/scripts python3 -m unittest discover -s tests -v
 Media tests need ffmpeg/ffprobe; otherwise they skip explicitly. Tests use local synthetic fixtures and temporary files, not user evidence. No model/API calls occur in the default suite.
 
 [Reuse decisions](docs/REUSE.md) · [Design](docs/DESIGN.md) · [Contracts](skills/sourcepack/references/contracts.md) · [MIT licence](LICENSE)
+
+## Planned next iteration
+
+[Seven-repository review and implementation plan](docs/planning/README.md): simpler video inspection, partial recovery, and optional MarkItDown/Docling document adapters. These are planned changes; the supported formats and limits above describe the current runtime.
