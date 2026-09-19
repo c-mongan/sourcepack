@@ -125,7 +125,7 @@ def locked(run):
 def load(run):
     run = Path(run).resolve(strict=True)
     m = json.loads((run / 'run.json').read_text())
-    if m.get('schema') != 'sourcepack.run.v1': raise ContractError('Not a SourcePack run')
+    if m.get('schema') not in ('sourcepack.run.v1','sourcepack.run.v2'): raise ContractError('Not a SourcePack run')
     return run, m
 
 
@@ -137,7 +137,7 @@ def check_artifacts(run, m):
 
 
 def summarize(run, source):
-    raw = run_tool(run, 'summarize', command('summarize') + [source, '--extract', '--json', '--format', 'md',
+    raw = run_tool(run, 'summarize', command('summarize') + [source, '--extract', '--json', '--timestamps', '--format', 'md',
         '--youtube', 'web', '--firecrawl', 'off', '--markdown-mode', 'readability', '--preprocess', 'off',
         '--embedded-video', 'off', '--no-slides', '--no-slides-ocr', '--no-cache', '--no-media-cache', '--timeout', '60s'])
     data = json.loads(raw)
@@ -186,55 +186,78 @@ def probe(run, path):
 
 
 def extract_youtube(run, m):
-    acquired = run / 'acquired'; source = m['identity']['source']
-    # Native captions remain useful if Summarize fails. Retain the failure receipt.
-    try: (acquired / 'extraction.json').write_bytes(summarize(run, source))
-    except (ContractError, ValueError) as exc: m['gaps'].append('Summarize route failed: ' + str(exc))
-    ytdlp = command('yt-dlp') + ['--ignore-config', '--no-playlist', '--socket-timeout', '20', '--retries', '1']
-    metadata = run_tool(run, 'metadata', ytdlp + ['--skip-download', '--dump-single-json', source])
-    info = json.loads(metadata); (acquired / 'metadata.json').write_bytes(metadata)
-    duration = info.get('duration')
-    if not isinstance(duration, (int, float)) or not 0 < duration <= 3600 or info.get('is_live'):
-        raise ContractError('This release supports finite YouTube videos up to one hour')
-    run_tool(run, 'captions', ytdlp + ['--skip-download', '--write-subs', '--write-auto-subs', '--sub-langs',
-        'en-orig,en', '--sub-format', 'vtt', '-o', str(acquired/'video.%(ext)s'), source], 180)
-    captions = sorted(acquired.glob('video.*.vtt'), key=lambda p: ('.en-orig.' not in p.name, p.name))
-    m['imports'] = []
-    if captions:
-        normalized = acquired / 'captions-normalized.vtt'
-        normalized.write_text(normalize_vtt(captions[0].read_text()), encoding='utf-8')
-        m['imports'].append({'path': str(normalized.relative_to(run)), 'format': None})
-        m['gaps'].append('Captions may be automatic. Speech accuracy is unverified; normalized captions strip markup and rolling overlap. Originals retained.')
-    elif (acquired/'extraction.json').exists():
-        m['imports'].append({'path': 'acquired/extraction.json', 'format': 'summarize'})
-        m['gaps'].append('No English VTT captions found; extracted text may lack timing.')
-    else:
-        m['gaps'].append('No transcript available. No ASR or paid fallback invoked; visual-only inspection.')
-    run_tool(run, 'video', ytdlp + ['--max-filesize', str(MAX_DOWNLOAD), '-f', 'bestvideo[height<=720][ext=mp4]',
-        '-o', str(acquired/'video.mp4'), source], 600)
-    media = acquired/'video.mp4'
-    if not media.exists() or media.stat().st_size > MAX_DOWNLOAD:
-        raise ContractError('No video within the 256 MiB acquisition budget')
-    m['gaps'].append('Video-only rendition acquired; audio not independently inspected. Frame samples cannot establish continuous visual coverage.')
-    segments = acquired/'segments'; segments.mkdir(exist_ok=True)
-    # Retry only in our owned directory. ffmpeg overwrites its own deterministic outputs.
-    run_tool(run, 'segment', command('ffmpeg') + ['-v', 'error', '-nostdin', '-y', '-protocol_whitelist', 'file,pipe',
-        '-f', 'mov', '-copyts', '-i', str(media), '-map', '0:v:0', '-c', 'copy', '-an', '-f', 'segment',
-        '-segment_time', '240', '-reset_timestamps', '0', str(segments/'segment-%03d.mp4')], 180)
-    clips = sorted(segments.glob('segment-*.mp4'))
-    if not clips or len(clips) > 20: raise ContractError('Unexpected segment count')
-    for clip in clips:
-        meta = probe(run, clip); stream = next(x for x in meta['streams'] if x['codec_type']=='video')
-        d = float(stream.get('duration') or meta['format']['duration'])
-        if not 0 < d <= 300 or clip.stat().st_size > 64*1024*1024:
-            raise ContractError('A keyframe-aligned segment exceeds core bounds; narrower source required')
-        m['imports'].append({'path': str(clip.relative_to(run)), 'format': None})
-    description = info.get('description') or ''
-    m['outbound_links'] = [{'url': x.rstrip('.,;)'), 'status': 'not_inspected'} for x in dict.fromkeys(URL.findall(description))]
-    m['gaps'].append('Companion links are inventoried, not fetched. The host chooses relevant sources under the skill workflow.')
+    from .stages import run_stage
+    from .normalized import cues_from_vtt, group_cues, payload_for
+    acquired=run/'acquired'; source=m['identity']['source']; m['imports']=[]
+    ytdlp=command('yt-dlp')+['--ignore-config','--no-playlist','--socket-timeout','20','--retries','1']
+    def metadata_action():
+        p=acquired/'metadata.json';p.write_bytes(run_tool(run,'metadata',ytdlp+['--skip-download','--dump-single-json',source]));return [p]
+    try:
+        run_stage(run,m,'metadata',{'argv':ytdlp,'source':source},metadata_action)
+        info=json.loads((acquired/'metadata.json').read_text())
+        duration=info.get('duration')
+        if type(duration) not in (int,float) or not 0<duration<=3600 or info.get('is_live'):
+            raise ContractError('This release supports finite YouTube videos up to one hour')
+    except (ContractError,ValueError) as exc:
+        m['gaps'].append('Metadata unavailable: '+str(exc));info={};duration=None
+    def transcript_action():
+        originals=[];cues=None
+        try:
+            path=acquired/'extraction.json';path.write_bytes(summarize(run,source));originals.append(path)
+            segments=json.loads(path.read_text()).get('extracted',{}).get('transcriptSegments')
+            if segments:cues=[{'id':str(i),'start_ms':x['startMs'],'end_ms':x.get('endMs'),'text':x['text']} for i,x in enumerate(segments)]
+        except (ContractError,ValueError,KeyError) as exc:m['gaps'].append('Summarize route failed: '+str(exc))
+        try:
+            run_tool(run,'captions',ytdlp+['--skip-download','--write-subs','--write-auto-subs','--sub-langs','en-orig,en','--sub-format','vtt','-o',str(acquired/'video.%(ext)s'),source],180)
+        except ContractError as exc:m['gaps'].append('Caption download failed: '+str(exc))
+        captions=sorted(acquired.glob('video.*.vtt'),key=lambda p:('.en-orig.' not in p.name,p.name))
+        originals.extend(captions)
+        if cues:original=acquired/'extraction.json'
+        elif captions:original=captions[0];cues=cues_from_vtt(original.read_text())
+        else:raise ContractError('No timed transcript available; no ASR or paid fallback invoked')
+        if captions:
+            try:
+                legacy=acquired/'captions-normalized.vtt';legacy.write_text(normalize_vtt(captions[0].read_text()));originals.append(legacy)
+            except ContractError:pass
+        out=acquired/'transcript.json'
+        write_json(out,payload_for(original,group_cues(cues,sha(original)),acquired,'timed-transcript-v1',origin=source))
+        return [*originals,out]
+    try:
+        run_stage(run,m,'transcript',{'summarize':command('summarize'),'yt-dlp':ytdlp,'revision':'grouped-v1'},transcript_action)
+        m['imports'].append({'path':'acquired/transcript.json','format':'normalized'})
+        m['gaps'].append('Captions may be automatic; speech accuracy unverified. Original cues and timing retained; grouped text is derived.')
+    except (ContractError,ValueError) as exc:m['gaps'].append('Transcript: '+str(exc))
+    m['outbound_links']=[{'url':x.rstrip('.,;)'),'status':'not_inspected'} for x in dict.fromkeys(URL.findall(info.get('description') or ''))]
+    if m.get('detail')=='text':
+        m.setdefault('stages',{})['video']={'status':'skipped','reason':'text-only request'}
+        m['gaps'].append('Text-only request: video visuals not acquired or inspected.');return
+    if duration is None:
+        m.setdefault('stages',{})['video']={'status':'failed','error':'Valid bounded metadata required'};return
+    def video_action():
+        media=acquired/'video.mp4'
+        run_tool(run,'video',ytdlp+['--max-filesize',str(MAX_DOWNLOAD),'-f','bestvideo[height<=720][ext=mp4]','-o',str(media),source],600)
+        if not media.exists() or media.stat().st_size>MAX_DOWNLOAD:raise ContractError('No video within acquisition budget')
+        return [media]
+    try:run_stage(run,m,'video',{'argv':ytdlp,'source':source,'height':720},video_action)
+    except ContractError as exc:m['gaps'].append('Video: '+str(exc));return
+    def visual_action():
+        segments=acquired/'segments';segments.mkdir(exist_ok=True)
+        run_tool(run,'segment',command('ffmpeg')+['-v','error','-nostdin','-y','-protocol_whitelist','file,pipe','-f','mov','-copyts','-i',str(acquired/'video.mp4'),'-map','0:v:0','-c','copy','-an','-f','segment','-segment_time','240','-reset_timestamps','0',str(segments/'segment-%03d.mp4')],180)
+        clips=sorted(segments.glob('segment-*.mp4'))
+        if not clips or len(clips)>20:raise ContractError('Unexpected segment count')
+        for clip in clips:
+            meta=probe(run,clip);stream=next(x for x in meta['streams'] if x['codec_type']=='video')
+            d=float(stream.get('duration') or meta['format']['duration'])
+            if not 0<d<=300 or clip.stat().st_size>64*1024*1024:raise ContractError('A segment exceeds core bounds')
+        return clips
+    try:
+        clips=run_stage(run,m,'visual-index',{'argv':command('ffmpeg'),'detail':m.get('detail','auto')},visual_action)
+        m['imports'].extend({'path':str(p.relative_to(run)),'format':None} for p in clips)
+    except ContractError as exc:m['gaps'].append('Visual index: '+str(exc))
+    m['gaps'].append('Video-only rendition; audio not independently inspected. Bounded frame samples can miss brief events.')
 
 
-def prepare(source, destination):
+def prepare(source, destination, question=None, detail=None):
     identity = source_identity(source); run = Path(destination).absolute()
     if run.is_symlink(): raise ContractError('Run directory cannot be a symlink')
     if run.exists():
@@ -243,14 +266,21 @@ def prepare(source, destination):
         if m['identity'] != identity: raise ContractError('Source changed; choose a new run directory')
     else:
         run.mkdir(parents=True, mode=0o700)
-        m = {'schema': 'sourcepack.run.v1', 'version': VERSION, 'identity': identity,
+        m = {'schema': 'sourcepack.run.v2', 'version': VERSION, 'identity': identity,
              'created_at': datetime.now(timezone.utc).isoformat(), 'status': 'acquiring',
              'jobs': [], 'gaps': [], 'artifacts': {}, 'outbound_links': []}
         write_json(run/'run.json', m)
     run = run.resolve()
     with locked(run):
         _, m = load(run); check_artifacts(run, m)
-        if m['status'] == 'ready': return m
+        if question and not any(x['question']==question for x in m.setdefault('analysis_requests',[])):
+            m['analysis_requests'].append({'question':question,'created_at':datetime.now(timezone.utc).isoformat()})
+        if detail and detail != m.get('detail','auto'):
+            from .stages import invalidate
+            invalidate(m,'video' if m.get('detail')=='text' else 'visual-index')
+        m['detail']=detail or m.get('detail','auto');write_json(run/'run.json',m)
+        if m['status'] in ('ready','ready_partial'): return m
+        if m['schema']=='sourcepack.run.v1':raise ContractError('Use upgrade-run before acquisition resume')
         (run/'acquired').mkdir(exist_ok=True, mode=0o700)
         try:
             if not m.get('acquisition_complete'):
@@ -269,16 +299,35 @@ def prepare(source, destination):
                 result=engine.ingest(run/item['path'],input_format=item['format'])
                 m['jobs'].append({'job_id':result['job_id'],'source':item['path']})
                 write_json(run/'run.json',m)
-            m['status']='ready';m.pop('error',None);write_json(run/'run.json',m)
+            if not m['jobs']:raise ContractError('No usable evidence acquired; inspect stage gaps')
+            m['status']='ready_partial' if any(x.get('status')=='failed' for x in m.get('stages',{}).values()) else 'ready';m.pop('error',None);write_json(run/'run.json',m)
             return m
         except Exception as exc:
             m['status']='failed';m['error']=str(exc);write_json(run/'run.json',m)
             raise
 
 
+def upgrade_run(run):
+    run,m=load(run)
+    with locked(run):
+        if m['schema']=='sourcepack.run.v2':return m
+        backup=run/'run.v1.json'
+        if backup.exists():raise ContractError('Upgrade backup exists; inspect previous attempt')
+        shutil.copyfile(run/'run.json',backup)
+        m['schema']='sourcepack.run.v2';m.setdefault('stages',{});write_json(run/'run.json',m)
+    return m
+
+def retry(run,stage):
+    from .stages import invalidate, DEPENDENTS
+    run,m=load(run)
+    if stage not in DEPENDENTS:raise ContractError('Unknown acquisition stage')
+    with locked(run):
+        _,m=load(run);invalidate(m,stage);write_json(run/'run.json',m)
+    return prepare(m['identity']['source'],run)
+
 def next_ticket(run):
     run,m=load(run)
-    if m['status']!='ready':raise ContractError('Run is not ready; retry prepare with the same source')
+    if m['status'] not in ('ready','ready_partial'):raise ContractError('Run is not ready; retry prepare with the same source')
     engine=Engine(run/'state',run/'acquired')
     for job in m['jobs']:
         result=engine.advance(job['job_id'])
@@ -349,7 +398,9 @@ def doctor():
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__);sub=p.add_subparsers(dest='action',required=True)
     sub.add_parser('doctor')
-    a=sub.add_parser('prepare');a.add_argument('source');a.add_argument('--out',required=True)
+    a=sub.add_parser('prepare');a.add_argument('source');a.add_argument('--out',required=True);a.add_argument('--question');a.add_argument('--detail',choices=['auto','text','deep'])
+    a=sub.add_parser('retry');a.add_argument('run');a.add_argument('--stage',required=True)
+    a=sub.add_parser('upgrade-run');a.add_argument('run')
     a=sub.add_parser('next');a.add_argument('run')
     a=sub.add_parser('submit');a.add_argument('run');a.add_argument('result')
     a=sub.add_parser('query');a.add_argument('run');a.add_argument('text')
@@ -358,7 +409,9 @@ def main(argv=None):
     args=p.parse_args(argv)
     try:
         if args.action=='doctor':result=doctor()
-        elif args.action=='prepare':result=prepare(args.source,args.out)
+        elif args.action=='prepare':result=prepare(args.source,args.out,args.question,args.detail)
+        elif args.action=='retry':result=retry(args.run,args.stage)
+        elif args.action=='upgrade-run':result=upgrade_run(args.run)
         elif args.action=='next':result=next_ticket(args.run)
         elif args.action=='submit':result=submit(args.run,args.result)
         elif args.action=='query':result=query(args.run,args.text)

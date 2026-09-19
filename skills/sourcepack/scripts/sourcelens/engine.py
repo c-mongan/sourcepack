@@ -48,8 +48,13 @@ class Engine:
         return resolved, raw
 
     def ingest(self, path, related=None, captions=None, input_format=None):
-        if input_format not in (None, 'summarize'):
+        if input_format not in (None, 'summarize', 'normalized'):
             raise ContractError('Unsupported import adapter')
+        normalized = None
+        if input_format == 'normalized':
+            from .normalized import read_payload
+            self._input(path)
+            normalized = read_payload(path)
         paths = [path] + ([captions] if captions else []) + list(related or [])
         if len(paths) > self.policy.max_inputs:
             raise ContractError('Too many explicit inputs')
@@ -60,7 +65,7 @@ class Engine:
             remaining -= len(item[1])
         identity = {'inputs': [(str(p), hashlib.sha256(raw).hexdigest()) for p, raw in inputs],
                     'format': input_format, 'captions': bool(captions), 'policy_id': self.policy.id,
-                    'adapter_revision': '0.1.1'}
+                    'adapter_revision': 'normalized-v1' if normalized else '0.1.1'}
         job_id = 'job-' + digest(identity)[:32]
         with self.store.db() as db:
             if db.execute('SELECT 1 FROM jobs WHERE id=?', (job_id,)).fetchone():
@@ -73,7 +78,25 @@ class Engine:
                       'acquired_at': datetime.now(timezone.utc).isoformat(),
                       'origin_kind': 'local-file' if input_format != 'summarize' or index else 'saved-extraction'}
             sources.append(source)
-            if p.suffix.lower() in VIDEO:
+            if normalized and index == 0:
+                from .normalized import checked_path
+                for item in [normalized['source'], *normalized.get('assets', [])]:
+                    asset_path = checked_path(p.parent, item)
+                    _, asset_bytes = self._input(asset_path, remaining)
+                    remaining -= len(asset_bytes)
+                    attached = self.store.put(job_id, asset_bytes, asset_path.suffix.lower())
+                    sources.append({'revision_id': 'rev-' + digest(item)[:32], 'label': asset_path.name,
+                                    **attached, 'origin_kind': 'normalized-original-or-asset'})
+                spans = []
+                for block in normalized['blocks']:
+                    span = {'kind': block['kind'], 'text': block['text'], 'method': block['method'],
+                            'locator': {**block['locator'], 'original_source_sha256': block['source_sha256'],
+                                        'cue_map': block.get('cue_map', [])}}
+                    if block.get('asset_path'):
+                        span['image_bytes'] = (p.parent / block['asset_path']).read_bytes()
+                    spans.append(span)
+                refs = []; gaps.append({'kind': 'derived', 'reason': 'Normalized blocks derived from retained hashed original; semantic fidelity requires host review'})
+            elif p.suffix.lower() in VIDEO:
                 from .media import extract
                 spans, media_gaps = extract(self.store.path(job_id, artifact), self.policy)
                 refs = []
