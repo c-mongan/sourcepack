@@ -293,7 +293,9 @@ def prepare(source, destination, question=None, detail=None):
                 else: extract_youtube(run,m)
                 m['artifacts']={str(p.relative_to(run)):sha(p) for p in sorted((run/'acquired').rglob('*')) if p.is_file()}
                 m['acquisition_complete']=True; write_json(run/'run.json',m)
-            engine=Engine(run/'state',run/'acquired')
+            video_count=sum(Path(x['path']).suffix in ('.mp4','.mov','.webm','.mkv') for x in m['imports'])
+            media_options={'max_frames':min(12,max(1,96//max(1,video_count))),'ffmpeg':command('ffmpeg'),'ffprobe':command('ffprobe')}
+            engine=Engine(run/'state',run/'acquired',media_options=media_options)
             m['jobs']=[]
             for item in m['imports']:
                 result=engine.ingest(run/item['path'],input_format=item['format'])
@@ -365,7 +367,12 @@ def focus(run,start,end):
             run_tool(run,'focus',command('ffmpeg')+['-v','error','-nostdin','-y','-protocol_whitelist','file,pipe',
                 '-ss',str(start),'-to',str(end),'-copyts','-f','mov','-i',str(run/'acquired/video.mp4'),
                 '-map','0:v:0','-an','-c','copy',str(clip)],120)
-        result=Engine(run/'state',run/'acquired').ingest(clip)
+        options={'max_frames':12,'ffmpeg':command('ffmpeg'),'ffprobe':command('ffprobe'),'start_ms':round(start*1000),'end_ms':round(end*1000)}
+        engine=Engine(run/'state',run/'acquired',media_options=options)
+        total=sum(sum(s['kind']=='frame' for s in engine.snapshot(j['job_id'])['spans']) for j in m['jobs'])
+        existing=next((j for j in m['jobs'] if j['source']==str(clip.relative_to(run))),None)
+        if not existing and total+12>144:raise ContractError('Collection frame budget exhausted')
+        result=engine.ingest(clip)
         if result['job_id'] not in {j['job_id'] for j in m['jobs']}:
             m['jobs'].append({'job_id':result['job_id'],'source':str(clip.relative_to(run))})
         m['artifacts'][str(clip.relative_to(run))]=sha(clip);write_json(run/'run.json',m)
@@ -402,6 +409,8 @@ def main(argv=None):
     a=sub.add_parser('retry');a.add_argument('run');a.add_argument('--stage',required=True)
     a=sub.add_parser('upgrade-run');a.add_argument('run')
     a=sub.add_parser('next');a.add_argument('run')
+    a=sub.add_parser('read');a.add_argument('run')
+    a=sub.add_parser('record');a.add_argument('run');a.add_argument('annotations')
     a=sub.add_parser('submit');a.add_argument('run');a.add_argument('result')
     a=sub.add_parser('query');a.add_argument('run');a.add_argument('text')
     a=sub.add_parser('focus');a.add_argument('run');a.add_argument('start',type=float);a.add_argument('end',type=float)
@@ -413,6 +422,15 @@ def main(argv=None):
         elif args.action=='retry':result=retry(args.run,args.stage)
         elif args.action=='upgrade-run':result=upgrade_run(args.run)
         elif args.action=='next':result=next_ticket(args.run)
+        elif args.action=='read':
+            from .packets import present_packet
+            result=present_packet(args.run)
+        elif args.action=='record':
+            from .packets import record_packet
+            p=Path(args.annotations)
+            if p.stat().st_size>64000:raise ContractError('Annotation byte budget exceeded')
+            annotations=json.loads(p.read_text());packet_id=annotations.pop('packet_id')
+            result=record_packet(args.run,packet_id,annotations)
         elif args.action=='submit':result=submit(args.run,args.result)
         elif args.action=='query':result=query(args.run,args.text)
         elif args.action=='focus':result=focus(args.run,args.start,args.end)

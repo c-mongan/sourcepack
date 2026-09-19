@@ -16,10 +16,11 @@ VIDEO = {'.mp4', '.mkv', '.mov', '.webm'}
 
 
 class Engine:
-    def __init__(self, root: Path, allowed_root: Path):
+    def __init__(self, root: Path, allowed_root: Path, media_options=None):
         self.supplied_root = Path(allowed_root).absolute()
         self.allowed_root = Path(allowed_root).resolve(strict=True)
         self.policy = Policy()
+        self.media_options = media_options
         self.store = Store(root)
 
     def _input(self, path, max_bytes=None):
@@ -66,6 +67,7 @@ class Engine:
         identity = {'inputs': [(str(p), hashlib.sha256(raw).hexdigest()) for p, raw in inputs],
                     'format': input_format, 'captions': bool(captions), 'policy_id': self.policy.id,
                     'adapter_revision': 'normalized-v1' if normalized else '0.1.1'}
+        if self.media_options and any(p.suffix.lower() in VIDEO for p,_ in inputs):identity['media_options']=self.media_options
         job_id = 'job-' + digest(identity)[:32]
         with self.store.db() as db:
             if db.execute('SELECT 1 FROM jobs WHERE id=?', (job_id,)).fetchone():
@@ -98,7 +100,7 @@ class Engine:
                 refs = []; gaps.append({'kind': 'derived', 'reason': 'Normalized blocks derived from retained hashed original; semantic fidelity requires host review'})
             elif p.suffix.lower() in VIDEO:
                 from .media import extract
-                spans, media_gaps = extract(self.store.path(job_id, artifact), self.policy)
+                spans, media_gaps = extract(self.store.path(job_id, artifact), self.policy, **(self.media_options or {}))
                 refs = []
                 gaps.extend(media_gaps)
                 if not captions:
