@@ -54,6 +54,7 @@ def build_pack(run,destination,include_originals=True):
             gaps.extend(cm.get('gaps',[]));scope='acquired' if root==run else f'companion-{len(register)+1}-acquired'
             if include_originals:
                 for p in (root/'acquired').rglob('*'):
+                    if p.is_symlink():raise ContractError('Acquisition originals cannot contain symlinks')
                     if not p.is_file():continue
                     if p.name=='request.json' or p.name.startswith('worker.'):
                         omissions.append({'path':str(p.relative_to(root)),'reason':'runtime diagnostics; retained privately in run'});continue
